@@ -1,8 +1,6 @@
 # blip - DRAFT
 A command-line tool for visualizing fixed format files from mainframe.
 
-This repository is licensed under MIT (c) 2020 GitHub, Inc.
-
 On the mainframe it may happen to come across fixed format files, i.e. files in which data is written in this way:
 
     01NAME1      SURNAME101/01/0001
@@ -13,11 +11,12 @@ Everything is simple until you find files in which the records are defined diffe
 
 This tool allows you to interpret the data, given the reference CoBOL structure.
 
-### DRAFT: the tool is obviously meant to be used on mainframe, but the development took place mainly on windows. Mainframe usage needs to be tested.
+### DRAFT(1): the tool is obviously meant to be used on mainframe, but the development took place mainly on windows. Mainframe usage needs to be tested.
+### DRAFT(2): in order for it to be used on mainframe, it is necessary to swap pipe and exclamation point in the source code :-/ I will provide a dedicated source
 
 ## use of the tool
 
-For example, let's define the data and the reference CoBOL copy as follows.
+For example, let's define the data and the reference CoBOL copy as follows:
 
 - data
 
@@ -37,6 +36,8 @@ For example, let's define the data and the reference CoBOL copy as follows.
     a13xyz30iiij@@.
     a14xyz90abcdef.
     ```
+
+    - data can be in ASCII or EBCDIC encoding.
 
 - copy
 
@@ -83,9 +84,9 @@ At start, the tool shows this menu:
         d: view data...
         x: exit blip
 
-- **e** just shows a file with some options
+- **e** just shows a file with some options (such as the encoding).
 
-- **c** shows the copy as interpreted by the tool
+- **c** shows the copy as interpreted by the tool:
 
     ```
     ;level;label                               ;picture             ; occurs;redefines                           ;  int;  dec; from;   to;  len;structure                                                                                           ;
@@ -114,7 +115,7 @@ At start, the tool shows this menu:
     ;    3;rec-footer                          ;x                   ;       ;                                    ;    1;    0;   15;   15;    1; | |03                                                                                              ;
     ```
 
- - **d** opens a submenu
+ - **d** opens a submenu:
  
     ```
     blip> viewData> enter command:
@@ -126,7 +127,6 @@ At start, the tool shows this menu:
     ```
 
 Here, **r** and **c** allow you to filter the rows and columns to be displayed, and to set the criteria for which a certain REDEFINE must be used for a given condition.
-With **v**
 
 In the example, let's say we filter the rows as follows:
 
@@ -186,7 +186,7 @@ And let's say we define the columns as follows:
     default
     show [*]
 
-The tool provides a report as follows:
+With **v**, the tool provides a report as follows:
 
      rec    ; rec    ; rec    ; rec  ; rec   ; filler ; rec   ; rec    ; 
      header ; header ; header ; type ; body  ; (1)    ; body  ; footer ; 
@@ -253,6 +253,8 @@ The tool provides a report as follows:
             ;        ;        ;      ;         ;        ;       ;       ;       ; 02    ;        ; 01    ;        ;       ;       ;        ;        ; 
             ;        ;        ;      ;         ;        ;       ;       ;       ;       ;        ;       ;        ;       ;       ;        ;        ; 
      a      ; 14     ; xyz    ; 9    ; 0       ; abcdef ; a     ; bc    ; def   ; ab    ; cde    ; f     ; abcdef ; abc   ; d     ; ef     ; .      ; 
+
+This repository is licensed under MIT (c) 2020 GitHub, Inc.
 
 
 
