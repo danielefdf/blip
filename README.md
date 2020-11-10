@@ -1,5 +1,6 @@
 # blip
-A command-line tool for visualizing fixed format files from mainframe
+A command-line tool for visualizing fixed format files from mainframe.
+This repository is licensed under MIT (c) 2020 GitHub, Inc.
 
 On the mainframe it may happen to come across fixed format files, i.e. files in which data is written in this way:
 
@@ -126,7 +127,6 @@ With **v**
 
 In the example, let's say we filter the rows as follows:
 
-    ```
      field ------------------------------------- query
      ALL FIELDS                                  [][]
      field01.                                    [][]
@@ -151,11 +151,9 @@ In the example, let's say we filter the rows as follows:
        rec-body-03-field-01                      [][]
        filler-(2)                                [][]
       rec-footer                                 [][]
-    ```
 
 And let's say we define the columns as follows:
 
-    ```
      when [rec-type][=][01]
      show [rec-header]
      and  [rec-type]
@@ -184,11 +182,9 @@ And let's say we define the columns as follows:
 
     default
     show [*]
-    ```
 
 The tool provides a report as follows:
 
-    ```
      rec    ; rec    ; rec    ; rec  ; rec   ; filler ; rec   ; rec    ; 
      header ; header ; header ; type ; body  ; (1)    ; body  ; footer ; 
      field  ; field  ; field  ;      ; 02    ;        ; 02    ;        ; 
@@ -254,8 +250,8 @@ The tool provides a report as follows:
             ;        ;        ;      ;         ;        ;       ;       ;       ; 02    ;        ; 01    ;        ;       ;       ;        ;        ; 
             ;        ;        ;      ;         ;        ;       ;       ;       ;       ;        ;       ;        ;       ;       ;        ;        ; 
      a      ; 14     ; xyz    ; 9    ; 0       ; abcdef ; a     ; bc    ; def   ; ab    ; cde    ; f     ; abcdef ; abc   ; d     ; ef     ; .      ; 
-    ```
 
-# LICENSE
 
-This repository is licensed under MIT (c) 2020 GitHub, Inc.
+
+
+
