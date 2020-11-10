@@ -254,6 +254,8 @@ With **v**, the tool provides a report as follows:
             ;        ;        ;      ;         ;        ;       ;       ;       ;       ;        ;       ;        ;       ;       ;        ;        ; 
      a      ; 14     ; xyz    ; 9    ; 0       ; abcdef ; a     ; bc    ; def   ; ab    ; cde    ; f     ; abcdef ; abc   ; d     ; ef     ; .      ; 
 
+In this example, the last record doesn't match any criteria, so all fields of the copy are shown.
+
 This repository is licensed under MIT (c) 2020 GitHub, Inc.
 
 
