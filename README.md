@@ -1,4 +1,4 @@
-# blip
+# blip - DRAFT
 A command-line tool for visualizing fixed format files from mainframe.
 This repository is licensed under MIT (c) 2020 GitHub, Inc.
 
