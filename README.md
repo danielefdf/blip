@@ -84,7 +84,39 @@ At start, the tool shows this menu:
         d: view data...
         x: exit blip
 
-- **e** just shows a file with some options (such as the encoding).
+- **e** shows a file with the parms for the tool
+
+    ```
+    *
+    * file data
+    *     dataset
+              C:\ ... blip\data\example1.ascii
+    *     ebcdic/ascii
+              ascii
+    *     lseq/seq
+              lseq
+    *
+    * file copy
+    *     dataset
+              C:\ ... blip\data\example1.cpy
+    *
+    * options
+    *     max number of records
+              99
+    *     max length for alphanumeric fields
+              99
+    *     restart record cursor for level
+              99
+    *
+    *
+    *
+    ```
+
+    The dataset and the copy can be set here.
+    
+    - **lseq** means that every record in the dataset terminates with a newline char (**seq** means the opposite).
+    
+        The presence of the newline char depends on what type of file-transfer is used.
 
 - **c** shows the copy as interpreted by the tool:
 
