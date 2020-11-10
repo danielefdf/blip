@@ -12,6 +12,8 @@ Everything is simple until you find files in which the records are defined diffe
 
 This tool allows you to interpret the data, given the reference CoBOL structure.
 
+### DRAFT: the tool is obviously meant to be used on mainframe, but the development took place mainly on windows. Mainframe usage needs to be tested.
+
 ## use of the tool
 
 For example, let's define the data and the reference CoBOL copy as follows.
