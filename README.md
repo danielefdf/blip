@@ -17,6 +17,7 @@ For example, lets' define the data and the reference CoBOL copy
 
 - data
 
+    '''
     a01xyz00abcdef.
     a02xyz10abbccc.
     a03xyz21aa@@@b.
@@ -31,9 +32,11 @@ For example, lets' define the data and the reference CoBOL copy
     a12xyz30gggh@@.
     a13xyz30iiij@@.
     a14xyz90abcdef.
+    '''
 
 - copy
 
+    '''
           01  field01.
                03 rec-header.
     01-01         05 rec-header-field-01     pic x(1).
@@ -66,6 +69,7 @@ For example, lets' define the data and the reference CoBOL copy
                   05 rec-body-03-field-01    pic x(1).
                   05 filler                  pic x(2).
     15-15      03 rec-footer                 pic x(1).
+    '''
 
 At start, the tool shows this menu:
 
@@ -79,6 +83,7 @@ At start, the tool shows this menu:
 
 - **c** shows the copy
 
+    '''
     ;level;label                               ;picture             ; occurs;redefines                           ;  int;  dec; from;   to;  len;structure                                                                                           ;
     ;     ;                                    ;                    ;       ;                                    ;     ;     ;     ;     ;     ;                                                                                                    ;
     ;    1;field01                             ;GROUP               ;       ;                                    ;    0;    0;    1;   15;   15; |01                                                                                                ;
@@ -103,6 +108,6 @@ At start, the tool shows this menu:
     ;    5;rec-body-03-field-01                ;x                   ;       ;                                    ;    1;    0;   12;   12;    1; | | |05                                                                                            ;
     ;    5;filler-(2)                          ;x(2)                ;       ;                                    ;    2;    0;   13;   14;    2; | | |05                                                                                            ;
     ;    3;rec-footer                          ;x                   ;       ;                                    ;    1;    0;   15;   15;    1; | |03                                                                                              ;
-
+    '''
 
 This repository is licensed under MIT (c) 2020 GitHub, Inc.
