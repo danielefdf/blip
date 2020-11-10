@@ -13,7 +13,7 @@ This tool allows you to interpret the data, given the reference CoBOL structure.
 
 ## use of the tool
 
-For example, lets' define the data and the reference CoBOL copy
+For example, let's define the data and the reference CoBOL copy as follows.
 
 - data
 
@@ -81,7 +81,7 @@ At start, the tool shows this menu:
 
 - **e** just shows a file with some options
 
-- **c** shows the copy
+- **c** shows the copy as interpreted by the tool
 
     ```
     ;level;label                               ;picture             ; occurs;redefines                           ;  int;  dec; from;   to;  len;structure                                                                                           ;
@@ -109,5 +109,153 @@ At start, the tool shows this menu:
     ;    5;filler-(2)                          ;x(2)                ;       ;                                    ;    2;    0;   13;   14;    2; | | |05                                                                                            ;
     ;    3;rec-footer                          ;x                   ;       ;                                    ;    1;    0;   15;   15;    1; | |03                                                                                              ;
     ```
+
+ - **d** opens a submenu
+ 
+    ```
+    blip> viewData> enter command:
+    r: select records...
+    c: select columns...
+    v: view data
+    m: return to parent menu
+    x: exit blip
+    ```
+
+Here, **r** and **c** allow you to filter the rows and columns to be displayed, and to set the criteria for which a certain REDEFINE must be used for a given condition.
+With **v**
+
+In the example, let's say we filter the rows as follows:
+
+    ```
+     field ------------------------------------- query
+     ALL FIELDS                                  [][]
+     field01.                                    [][]
+      rec-header.                                [][]
+       rec-header-field-01                       [][]
+       rec-header-field-02                       [][]
+       rec-header-field-03                       [][]
+      rec-type                                   [>][1]
+      rec-subtype                                [][]
+      rec-body                                   [][]
+      rec-body-01.                               [][]
+       rec-body-01-field-01                      [][]
+       rec-body-01-field-02                      [][]
+       rec-body-01-field-03                      [][]
+      rec-body-02-01.                            [][]
+       rec-body-02-01-field-02                   [][]
+       filler-(1)                                [][]
+       rec-body-02-01-field-01                   [][]
+      rec-body-02-02                             [][]
+      rec-body-03.                               [][]
+       rec-body-03-field-03                      [][]
+       rec-body-03-field-01                      [][]
+       filler-(2)                                [][]
+      rec-footer                                 [][]
+    ```
+
+And let's say we define the columns as follows:
+
+    ```
+     when [rec-type][=][01]
+     show [rec-header]
+     and  [rec-type]
+     and  [rec-body-01]
+     and  [rec-footer]
+
+     when [rec-type][=][02]
+     and  [rec-subtype][=][01]
+     show [rec-header]
+     and  [rec-type]
+     and  [rec-body-02-01]
+     and  [rec-footer]
+
+     when [rec-type][=][02]
+     and  [rec-subtype][=][02]
+     show [rec-header]
+     and  [rec-type]
+     and  [rec-body-02-02]
+     and  [rec-footer]
+
+     when [rec-type][=][03]
+     show [rec-header]
+     and  [rec-type]
+     and  [rec-body-03]
+     and  [rec-footer]
+
+    default
+    show [*]
+    ```
+
+The tool provides a report as follows:
+
+    ```
+     rec    ; rec    ; rec    ; rec  ; rec   ; filler ; rec   ; rec    ; 
+     header ; header ; header ; type ; body  ; (1)    ; body  ; footer ; 
+     field  ; field  ; field  ;      ; 02    ;        ; 02    ;        ; 
+     01     ; 02     ; 03     ;      ; 01    ;        ; 01    ;        ; 
+            ;        ;        ;      ; field ;        ; field ;        ; 
+            ;        ;        ;      ; 02    ;        ; 01    ;        ; 
+            ;        ;        ;      ;       ;        ;       ;        ; 
+     a      ; 03     ; xyz    ; 2    ; aa    ; @@@    ; b     ; .      ; 
+
+     rec    ; rec    ; rec    ; rec  ; rec    ; rec    ; 
+     header ; header ; header ; type ; body   ; footer ; 
+     field  ; field  ; field  ;      ; 02     ;        ; 
+     01     ; 02     ; 03     ;      ; 02     ;        ; 
+            ;        ;        ;      ;        ;        ; 
+            ;        ;        ;      ;        ;        ; 
+            ;        ;        ;      ;        ;        ; 
+     a      ; 04     ; xyz    ; 2    ; @@@@@@ ; .      ; 
+
+     rec    ; rec    ; rec    ; rec  ; rec   ; rec   ; filler ; rec    ; 
+     header ; header ; header ; type ; body  ; body  ; (2)    ; footer ; 
+     field  ; field  ; field  ;      ; 03    ; 03    ;        ;        ; 
+     01     ; 02     ; 03     ;      ; field ; field ;        ;        ; 
+            ;        ;        ;      ; 03    ; 01    ;        ;        ; 
+            ;        ;        ;      ;       ;       ;        ;        ; 
+            ;        ;        ;      ;       ;       ;        ;        ; 
+     a      ; 05     ; xyz    ; 3    ; aaa   ; b     ; @@     ; .      ; 
+
+     rec    ; rec    ; rec    ; rec  ; rec   ; filler ; rec   ; rec    ; 
+     header ; header ; header ; type ; body  ; (1)    ; body  ; footer ; 
+     field  ; field  ; field  ;      ; 02    ;        ; 02    ;        ; 
+     01     ; 02     ; 03     ;      ; 01    ;        ; 01    ;        ; 
+            ;        ;        ;      ; field ;        ; field ;        ; 
+            ;        ;        ;      ; 02    ;        ; 01    ;        ; 
+            ;        ;        ;      ;       ;        ;       ;        ; 
+     a      ; 07     ; xyz    ; 2    ; cc    ; @@@    ; d     ; .      ; 
+
+     rec    ; rec    ; rec    ; rec  ; rec    ; rec    ; 
+     header ; header ; header ; type ; body   ; footer ; 
+     field  ; field  ; field  ;      ; 02     ;        ; 
+     01     ; 02     ; 03     ;      ; 02     ;        ; 
+            ;        ;        ;      ;        ;        ; 
+            ;        ;        ;      ;        ;        ; 
+            ;        ;        ;      ;        ;        ; 
+     a      ; 08     ; xyz    ; 2    ; @@@@@@ ; .      ; 
+
+     rec    ; rec    ; rec    ; rec  ; rec   ; rec   ; filler ; rec    ; 
+     header ; header ; header ; type ; body  ; body  ; (2)    ; footer ; 
+     field  ; field  ; field  ;      ; 03    ; 03    ;        ;        ; 
+     01     ; 02     ; 03     ;      ; field ; field ;        ;        ; 
+            ;        ;        ;      ; 03    ; 01    ;        ;        ; 
+            ;        ;        ;      ;       ;       ;        ;        ; 
+            ;        ;        ;      ;       ;       ;        ;        ; 
+     a      ; 10     ; xyz    ; 3    ; ccc   ; d     ; @@     ; .      ; 
+     a      ; 11     ; xyz    ; 3    ; eee   ; f     ; @@     ; .      ; 
+     a      ; 12     ; xyz    ; 3    ; ggg   ; h     ; @@     ; .      ; 
+     a      ; 13     ; xyz    ; 3    ; iii   ; j     ; @@     ; .      ; 
+
+     rec    ; rec    ; rec    ; rec  ; rec     ; rec    ; rec   ; rec   ; rec   ; rec   ; filler ; rec   ; rec    ; rec   ; rec   ; filler ; rec    ; 
+     header ; header ; header ; type ; subtype ; body   ; body  ; body  ; body  ; body  ; (1)    ; body  ; body   ; body  ; body  ; (2)    ; footer ; 
+     field  ; field  ; field  ;      ;         ;        ; 01    ; 01    ; 01    ; 02    ;        ; 02    ; 02     ; 03    ; 03    ;        ;        ; 
+     01     ; 02     ; 03     ;      ;         ;        ; field ; field ; field ; 01    ;        ; 01    ; 02     ; field ; field ;        ;        ; 
+            ;        ;        ;      ;         ;        ; 01    ; 02    ; 03    ; field ;        ; field ;        ; 03    ; 01    ;        ;        ; 
+            ;        ;        ;      ;         ;        ;       ;       ;       ; 02    ;        ; 01    ;        ;       ;       ;        ;        ; 
+            ;        ;        ;      ;         ;        ;       ;       ;       ;       ;        ;       ;        ;       ;       ;        ;        ; 
+     a      ; 14     ; xyz    ; 9    ; 0       ; abcdef ; a     ; bc    ; def   ; ab    ; cde    ; f     ; abcdef ; abc   ; d     ; ef     ; .      ; 
+    ```
+
+# LICENSE
 
 This repository is licensed under MIT (c) 2020 GitHub, Inc.
