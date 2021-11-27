@@ -1,16 +1,9 @@
 /* Rexx */
 
-/* DONE
- - I/O da file anche per opzioni e file
- - gestire commenti
-*/
-
-/* DOING
-*/
-
-/* TODO
- - da portare e testare su MF
- - da gestire in formato ascii se/quando ci sarà occasione
+/*
+   TODO
+ - lrecl fisso a 400
+ - da gestire in formato ascii se/quando ci sarเ occasione
     doppia gestione segno per signed - parametro SIGNED_ZONED_FORMAT
     formattazione comp
     lettura dati con redefines su ascii
@@ -32,14 +25,17 @@ main:
     call checkOs
     call setConstants
     call initSelectFeatures
-    select
-    when (os = 'WIN64') then nop
-    when (os = 'TSO')   then call checkWorkLibrariesTSO
-    end
+    call checkWorkDirectories
     command = ''
+    mainIterCounter = 0
     do while (SYS_TRUE)
+        mainIterCounter = mainIterCounter + 1
+        call checkMainIterCounter
         call checkProfile
+        proFileIterCounter = 0
         do while (proFileStatus = 'ko')
+            proFileIterCounter = proFileIterCounter + 1
+            call checkProFileIterCounter
             call startPRO_FILE
             call checkProfile
         end
@@ -87,6 +83,7 @@ setConstants:
     then do
         BLIP_DIRECTORY = userid()'.BLIP'
         PRO_FILE = BLIP_DIRECTORY'.PROFILE'
+        PRO_FILE_Q = "'" || BLIP_DIRECTORY'.PROFILE' || "'"
     end
     end
     /* data file */
@@ -103,6 +100,9 @@ setConstants:
     ALL_FIELDS_LABEL = 'ALL FIELDS'
     /* ebcdic > ascii */
     call loadEbcdicToAscii
+    /* loop safety counters */
+    MAX_MAIN_ITER_COUNTER = 10
+    MAX_PRO_FILE_ITER_COUNTER = 10
     return
 
 initSelectFeatures:
@@ -113,19 +113,43 @@ initSelectFeatures:
     call setAllSelColsVisible
     return
 
-checkWorkLibrariesTSO:
-    if (sysdsn(selRecsFile) <> 'OK')
-    then do
-        call allocateSelRecsDirectory
+checkWorkDirectories:
+    select
+    when (os = 'WIN64') then call checkWorkDirectoriesWIN
+    when (os = 'TSO')   then call checkWorkDirectoriesTSO
     end
-    if (sysdsn(selColsFile) <> 'OK')
-    then do
-        call allocateSelColsDirectory
-    end
+    return
+
+checkWorkDirectoriesWIN:
+    selRecsDirectory = BLIP_DIRECTORY'\selRecs'
+    selColsDirectory = BLIP_DIRECTORY'\selCols'
+    return
+
+checkWorkDirectoriesTSO:
+    selRecsDirectory = BLIP_DIRECTORY'.SELRECS'
+    selColsDirectory = BLIP_DIRECTORY'.SELCOLS'
     return
 
 editConsole:
     call startPRO_FILE
+    return
+
+checkMainIterCounter:
+    if (mainIterCounter > MAX_MAIN_ITER_COUNTER)
+    then do
+        say 'Max number of usages per session reached.'
+        say 'Please restart.'
+        call exitBlip
+    end
+    return
+
+checkProFileIterCounter:
+    if (proFileIterCounter > MAX_PRO_FILE_ITER_COUNTER)
+    then do
+        say 'Max number of profile edits per session reached.'
+        say 'Please restart.'
+        call exitBlip
+    end
     return
 
 checkProfile:
@@ -134,6 +158,7 @@ checkProfile:
     if (openReadProFileStatus <> 'ok')
     then do
         call initProfile
+        call openReadProFile
     end
     call getProfileOptions
     call getCOPY_NAME
@@ -197,30 +222,31 @@ initProfile:
     call writeProRecord
     proRecord = '*'
     call writeProRecord
+    call closeProFile
     return
 
 getProfileOptions:
     proFileParmCursor = 0
-    do proFileRecordsCursor = 1 to proFileRecordsCounter
+    do proFileRecsCursor = 1 to proFileRecsCounter
         call readProRecord
         if (substr(proRecord, 1, 1) <> '*')
         then do
             proFileParmCursor = proFileParmCursor + 1
             select
-            when (proFileParmCursor = 1)    
-            then DATA_FILE         = strip(proRecord)
-            when (proFileParmCursor = 2)    
-            then DATA_ENCODING     = strip(proRecord)
+            when (proFileParmCursor = 1)
+            then DATA_FILE          = strip(proRecord)
+            when (proFileParmCursor = 2)
+            then DATA_ENCODING      = strip(proRecord)
             when (proFileParmCursor = 3)
-            then DATA_DSORG        = strip(proRecord)
+            then DATA_DSORG         = strip(proRecord)
             when (proFileParmCursor = 4)
-            then COPY_FILE         = strip(proRecord)
+            then COPY_FILE          = strip(proRecord)
             when (proFileParmCursor = 5)
-            then MAX_DATA_RECORDS  = strip(proRecord)
+            then MAX_DATA_RECORDS   = strip(proRecord)
             when (proFileParmCursor = 6)
-            then MAX_ALPHA_LENGTH  = strip(proRecord)
+            then MAX_ALPHA_LENGTH   = strip(proRecord)
             when (proFileParmCursor = 7)
-            then RESTART_LOG_LEVEL = strip(proRecord)
+            then RESTART_LOG_LEVEL  = strip(proRecord)
             end
         end
     end
@@ -272,8 +298,6 @@ setFiles:
     return
 
 setFilesWIN:
-    selRecsDirectory = BLIP_DIRECTORY'\selRecs'
-    selColsDirectory = BLIP_DIRECTORY'\selCols'
     selRecsFile = selRecsDirectory'\'COPY_NAME'.txt'
     selColsFile = selColsDirectory'\'COPY_NAME'.txt'
     outCopyFile = BLIP_DIRECTORY'\outCopyFile.txt'
@@ -281,12 +305,10 @@ setFilesWIN:
     return
 
 setFilesTSO:
-    selRecsDirectory = BLIP_DIRECTORY'.SELRECS'
-    selColsDirectory = BLIP_DIRECTORY'.SELCOLS'
-    selRecsFile = selRecsDirectory'('COPY_NAME')'
-    selColsFile = selColsDirectory'('COPY_NAME')'
-    outCopyFile = BLIP_DIRECTORY'.OUTCOPYF'
-    outDataFile = BLIP_DIRECTORY'.OUTDATAF'
+    selRecsFile = "'" || selRecsDirectory'.'COPY_NAME || "'"
+    selColsFile = "'" || selColsDirectory'.'COPY_NAME || "'"
+    outCopyFile = "'" || BLIP_DIRECTORY'.OUTCOPYF'    || "'"
+    outDataFile = "'" || BLIP_DIRECTORY'.OUTDATAF'    || "'"
     return
 
 viewCopy:
@@ -314,27 +336,37 @@ viewData:
     return
 
 checkCurrentFiles:
-    call openReadDataFile
-    call openReadCopyFile
+    if (DATA_FILE <> '?' & DATA_FILE <> '')
+    then do
+        call openReadDataFile
+    end
+    if (COPY_FILE <> '?' & COPY_FILE <> '')
+    then do
+        call openReadCopyFile
+    end
     call openWriteOutDataFile
     call openWriteOutCopyFile
-    call openReadSelRecsFile
-    call openReadSelColsFile
+    if (COPY_FILE <> '?' & COPY_FILE <> '')
+    then do
+        call openReadSelRecsFile
+        call openReadSelColsFile
+    end
     return
 
 setProFileStatus:
     proFileStatus = 'ok'
     select
-    when (DATA_FILE = '')
+    when (DATA_FILE = '?' | DATA_FILE = '')
     then do
         say
-        say 'blip> checkProfile> data file: empty'
+        say 'blip> checkProfile> data file: missing'
         proFileStatus = 'ko'
     end
     when (DATA_ENCODING <> 'ascii' & DATA_ENCODING <> 'ebcdic')
     then do
         say
         say 'blip> checkProfile> data file encoding: wrong value'
+        say 'blip> checkProfile> DATA_ENCODING='DATA_ENCODING
         proFileStatus = 'ko'
     end
     when (DATA_DSORG <> 'seq' & DATA_DSORG <> 'lseq')
@@ -343,10 +375,10 @@ setProFileStatus:
         say 'blip> checkProfile> data file organization: wrong value'
         proFileStatus = 'ko'
     end
-    when (COPY_FILE = '')
+    when (COPY_FILE = '?' | COPY_FILE = '')
     then do
         say
-        say 'blip> checkProfile> copy file: empty'
+        say 'blip> checkProfile> copy file: missing'
         proFileStatus = 'ko'
     end
     when (datatype(MAX_DATA_RECORDS) <> 'NUM')
@@ -380,7 +412,6 @@ setAllSelColsVisible:
     return
 
 setNormsList:
-    call initCopyFileReadCursor
     norms. = ''
     normsCounter = 0
     literalQuote = ''
@@ -462,7 +493,8 @@ setMonosList:
 
 normalizeNorm:
     norm = replaceText(norm, '.', ' ')
-    parse lower var norm norm
+    norm = translate(norm, 'abcdefghijklmnopqrstuvwxyz', ,
+                           'ABCDEFGHIJKLMNOPQRSTUVWXYZ')
     call clearOptionals
     call replaceSynonyms
     return
@@ -1648,7 +1680,6 @@ displayField:
     return
 
 showCopy:
-    call initOutCopyFileCursor
     call setOutCopyHeader
     call writeOutCopyRecord
     call setOutCopySeparator
@@ -1777,7 +1808,7 @@ showData:
 
 setSelRecs:
     if (selRecsFileWritten = FALSE ,
-            & selRecsRecordsCounter = 0)
+            & selRecsRecsCounter = 0)
     then do
         call refreshSelRecsFile
     end
@@ -1879,7 +1910,7 @@ checkAllSelRecsFields:
     call openReadSelRecsFile
     call readSelRecsRecord /* record 1: header */
     call readSelRecsRecord /* record 2: all fields selection */
-    do selectRecsIndex = 3 to selRecsRecordsCounter
+    do selectRecsIndex = 3 to selRecsRecsCounter
         call readSelRecsRecord
         selRecsFieldLabel = substr(selectRecord, 1, FIELD_LABEL_PAD)
         selRecsFieldLabel = strip(selRecsFieldLabel)
@@ -1903,7 +1934,7 @@ checkSelRecsFieldLabel:
         allSelRecsParmsOk = FALSE
         say
         say 'blip> viewData> selRecs> field [' ,
-                || selRecsFieldLabel'] not found!'
+                || selRecsFieldLabel'] not found'
     end
     return
 
@@ -1912,7 +1943,7 @@ checkAllSelRecsParms:
     call openReadSelRecsFile
     call readSelRecsRecord /* record 1: header */
                            /* record 2: all fields selection */
-    do selectRecsIndex = 2 to selRecsRecordsCounter
+    do selectRecsIndex = 2 to selRecsRecsCounter
         call readSelRecsRecord
         selRecsFieldLabel = substr(selectRecord, 1, FIELD_LABEL_PAD)
         selRecsFieldLabel = strip(selRecsFieldLabel)
@@ -1965,7 +1996,7 @@ checkSelRecsOperatorWIN:
         selRecsParmsOk = FALSE
         say
         say 'blip> viewData> selRecs> comparison operator ' ,
-                || '['selRecsOperator'] not allowed!'
+                || '['selRecsOperator'] not allowed'
     end
     return
 
@@ -1984,7 +2015,7 @@ checkSelRecsOperatorTSO:
         selRecsParmsOk = FALSE
         say
         say 'blip> viewData> selRecs> comparison operator ' ,
-                || '['selRecsOperator'] not allowed!'
+                || '['selRecsOperator'] not allowed'
     end
     return
 
@@ -2001,7 +2032,7 @@ setSelRecsCondition:
 
 setSelCols:
     if (selColsFileWritten = FALSE ,
-            & selColsRecordsCounter = 0)
+            & selColsRecsCounter = 0)
     then do
         call refreshSelColsFile
     end
@@ -2154,7 +2185,7 @@ getAllSelColsStrings:
     selColsStringsCounter = 0
     call closeSelColsFile
     call openReadSelColsFile
-    do selColsRecsIndex = 1 to selColsRecordsCounter
+    do selColsRecsIndex = 1 to selColsRecsCounter
         call readSelColsRecord
         parse var selColsRecord firstWord .
         if (firstWord <> '*' ,
@@ -2189,7 +2220,8 @@ checkSelColsString:
     selColsColumnsCounter = 0
     selColsStringCut = selColsString
     do while (length(selColsStringCut) > 0 ,
-            & allSelColsParmsOk = TRUE)
+            & allSelColsParmsOk = TRUE ,
+            & nextWord <> '')
         call checkSelColsWords
     end
     selColsCondsCounters.selColsCounter   = selColsCondsCounter
@@ -2250,6 +2282,10 @@ checkSelColsWords:
             selColsColumns.0.selColsColumnsCounter = selColsColumn
         end
     end
+    when (nextWord = '')
+    then do
+        nop
+    end
     otherwise
         allSelColsParmsOk = FALSE
         say
@@ -2295,7 +2331,7 @@ checkSelColsLabel:
         allSelColsParmsOk = FALSE
         say
         say 'blip> viewData> selCols> field ['label']' ,
-                || ' not found!'
+                || ' not found'
     end
     return
 
@@ -2323,7 +2359,7 @@ checkSelColsOperatorWIN:
         allSelColsParmsOk = FALSE
         say
         say 'blip> viewData> selCols> comparison operator [' ,
-                || operator'] not allowed!'
+                || operator'] not allowed'
     end
     return
 
@@ -2343,7 +2379,7 @@ checkSelColsOperatorTSO:
         allSelColsParmsOk = FALSE
         say
         say 'blip> viewData> selCols> comparison operator [' ,
-                || operator'] not allowed!'
+                || operator'] not allowed'
     end
     return
 
@@ -2417,7 +2453,7 @@ checkSelColsAllFieldsParms:
     return
 
 showData1:
-    call initOutDataFileWriteCursor
+    call openWriteOutDataFile
     call resetDataFile
     call selectDataRecords
     call startOutDataFile
@@ -2431,6 +2467,13 @@ resetDataFile:
     return
 
 resetDataCursor:
+    select
+    when (os = 'WIN64') then call resetDataCursorWIN
+    when (os = 'TSO')   then nop
+    end
+    return
+
+resetDataCursorWIN:
     charinReset = charin(DATA_FILE, dataCursor, 0)
     return
 
@@ -2439,7 +2482,7 @@ selectDataRecords:
             & SIMULATE_TSO_FROM_WIN64 = TRUE)
     then do
         os = 'TSO'
-        dataFileRecordsCounter = lines(DATA_FILE, 'C')
+        dataFileRecsCounter = lines(DATA_FILE, 'C')
     end
     select
     when (os = 'WIN64') then call selectDataRecordsWIN
@@ -2620,7 +2663,6 @@ getZonedValue:
     return
 
 checkSignedZonedFormat:
-    /* ??? */
     /* zonedNote
         leggere esadecimale
         esaminare contenuto e verificare gestione segno
@@ -2639,7 +2681,7 @@ checkSignedZonedFormat:
     otherwise
         /* altre eventuali gestioni */
     end
-    say 'warning: presente campo numerico zoned - completare gestione'
+    say 'TODO: presente campo numerico zoned - completare gestione'
     return
 
 getComp3Value:
@@ -2817,7 +2859,7 @@ formatCompComma:
     return
 
 formatCompCommaAscii:
-    /* ??? verificare posizione virgola */
+    /* TODO verificare posizione virgola */
     return
 
 checkSelRecsConds:
@@ -2947,9 +2989,11 @@ selectDataRecordsTSO:
     formatDataValues = FALSE
     outputRecordsCounter = 1
     lastOccurredSCIndex = -1
-    do while (dataFileRecordsCursor < dataFileRecordsCounter ,
+    dataRecsCursor = 0
+    do while (dataRecsCursor < dataFileRecsCounter ,
             & outputRecordsCounter <= MAX_DATA_RECORDS - 1)
         call readDataFileRecord
+        dataRecsCursor = dataRecsCursor + 1
         outputRecord = ' '
         call selectOutputRecordTSO
         outputRecordsCounter = outputRecordsCounter + 1
@@ -3196,7 +3240,7 @@ loadEbcdicToAscii:
     i = i+1;  ebcdic.i = '40';  ascii.i = '20'  /*   */
     i = i+1;  ebcdic.i = '7C';  ascii.i = '40'  /* @ */
     i = i+1;  ebcdic.i = '60';  ascii.i = '2D'  /* - */
-    i = i+1;  ebcdic.i = '6B';  ascii.i = '2C'  /* ‘ */
+    i = i+1;  ebcdic.i = '6B';  ascii.i = '2C'  /* โ€? */
     i = i+1;  ebcdic.i = '5E';  ascii.i = '3B'  /* ; */
     i = i+1;  ebcdic.i = '6D';  ascii.i = '5F'  /* _ */
     i = i+1;  ebcdic.i = '6E';  ascii.i = '3E'  /* > */
@@ -3204,7 +3248,7 @@ loadEbcdicToAscii:
     i = i+1;  ebcdic.i = '4B';  ascii.i = '2E'  /* . */
     i = i+1;  ebcdic.i = '4C';  ascii.i = '3C'  /* < */
     i = i+1;  ebcdic.i = '7E';  ascii.i = '3D'  /* = */
-    i = i+1;  ebcdic.i = 'A1';  ascii.i = '7E'  /* ∞ */
+    i = i+1;  ebcdic.i = 'A1';  ascii.i = '7E'  /* โ?? */
     i = i+1;  ebcdic.i = '4D';  ascii.i = '28'  /* ( */
     i = i+1;  ebcdic.i = '4E';  ascii.i = '2B'  /* + */
     i = i+1;  ebcdic.i = '4F';  ascii.i = '21'  /* | */
@@ -3290,809 +3334,6 @@ replaceText: procedure
         call exitError
     end
     return newString
-    
-/* file managing */
-
-allocateSelRecsDirectory:
-    selRecsDirectoryQ = "'"selRecsDirectory"'"
-    address tso
-        'allocate dataset('selRecsDirectoryQ') new' ,
-                'space(10 1) cylinders release' ,
-                'lrecl(80) block(1600) recfm(f b) dsorg(po)'
-    address
-    call checkRc 'allocateSelRecsDirectory' ,
-            rc 0
-    return
-
-allocateSelColsDirectory:
-    selColsDirectoryQ = "'"selColsDirectory"'"
-    address tso
-        'allocate dataset('selColsDirectoryQ') new' ,
-                'space(10 1) cylinders release' ,
-                'lrecl(80) block(1600) recfm(f b) dsorg(po)'
-    address
-    call checkRc 'allocateSelColsDirectory' ,
-            rc 0
-    return
-
-openReadProFile:
-    openReadProFileStatus = ''
-    select
-    when (os = 'WIN64') then call openReadProFileWIN
-    when (os = 'TSO')   then call openReadProFileTSO
-    end
-    return
-
-openReadProFileWIN:
-    proFileRc = stream(PRO_FILE, 'C', 'OPEN READ')
-    call checkRc 'openReadProFileWIN' ,
-            proFileRc 'READY:'
-    select
-    when (proFileRc = 'READY:')
-    then do
-        openReadProFileStatus = 'ok'
-        call initProFileReadCursor
-        proFileRecordsCounter = lines(PRO_FILE, 'C')
-    end
-    otherwise
-        say
-        say 'open-read profile KO'
-        say 'proFileRc ['proFileRc']'
-    end
-    return
-
-initProFileReadCursor:
-    proFileRc = linein(PRO_FILE, 1, 0)
-    call checkRc 'initProFileReadCursor' ,
-            proFileRc ''
-    return
-
-openReadProFileTSO:
-    if (sysdsn(PRO_FILE) = 'OK')
-    then do
-        call allocateProFile
-    end
-    else do
-        call allocateNewProFile
-    end
-    openReadProFileStatus = 'ok'
-    return
-
-allocateProFile:
-    address tso
-            'free ddname(proDD)'
-        'allocate ddname(proDD) dataset('PRO_FILE') shr'
-    address
-    call checkRc 'allocateProFile' ,
-            rc 0
-    return
-
-allocateNewProFile:
-    address tso
-            'free ddname(proDD)'
-        'allocate ddname(proDD) dataset('PRO_FILE') new' ,
-                'space(1 1) tracks release' ,
-                'lrecl(80) block(1600) recfm(f b) dsorg(ps)'
-    address
-    call checkRc 'allocateNewProFile' ,
-            rc 0
-    return
-
-openWriteProFile:
-    select
-    when (os = 'WIN64') then call openWriteProFileWIN
-    when (os = 'TSO')   then call openWriteProFileTSO
-    end
-    return
-
-openWriteProFileWIN:
-    proFileRc = stream(PRO_FILE, 'C', 'OPEN WRITE')
-    call checkRc 'openWriteProFileWIN' ,
-            proFileRc 'READY:'
-    call initProFileWriteCursor
-    return
-
-initProFileWriteCursor:
-    proFileRc = lineout(PRO_FILE, , 1)
-    call checkRc 'initProFileWriteCursor' ,
-            proFileRc 0
-    proFileRc = 'ok'
-    return
-
-openWriteProFileTSO:
-    call allocateProFile
-    return
-
-readProRecord:
-    select
-    when (os = 'WIN64') then call readProRecordWIN
-    when (os = 'TSO')   then call readProRecordTSO
-    end
-    return
-
-readProRecordWIN:
-    proRecord = linein(PRO_FILE)
-    return
-
-readProRecordTSO:
-    proFileStem. = ''
-    address tso
-        'execio 1 diskr proDD (stem proFileStem.'
-    address
-    call checkRc 'readProRecordTSO' ,
-            rc 0
-    proRecord = proFileStem.1
-    return
-
-writeProRecord:
-    select
-    when (os = 'WIN64') then call writeProRecordWIN
-    when (os = 'TSO')   then call writeProRecordTSO
-    end
-    return
-
-writeProRecordWIN:
-    proFileRc = lineout(PRO_FILE, proRecord)
-    call checkRc 'writeProRecordWIN' ,
-            proFileRc 0
-    return
-
-writeProRecordTSO:
-    proFileStem. = ''
-    proFileStem.1 = proRecord
-    proFileStem.0 = 1
-    address tso
-        'execio 1 diskw proDD (proFileStem.'
-    address
-    call checkRc 'writeProRecordTSO' ,
-            rc 0
-    return
-
-startPRO_FILE:
-    select
-    when (os = 'WIN64') then call startPRO_FILE_WIN
-    when (os = 'TSO')   then call startPRO_FILE_TSO
-    end
-    return
-
-startPRO_FILE_WIN:
-    address system
-        'start "" "'PRO_FILE'"'
-    address
-    call checkRc 'startPRO_FILE_WIN' ,
-            rc 0
-    return
-
-startPRO_FILE_TSO:
-    address ispexec
-        'edit dataset ('PRO_FILE')'
-    address
-    call checkRc 'startPRO_FILE_TSO' ,
-            rc 0
-    return
-
-closeProFile:
-    select
-    when (os = 'WIN64') then call closeProFileWIN
-    when (os = 'TSO')   then nop
-    end
-    return
-
-closeProFileWIN:
-    proFileRc = stream(PRO_FILE, 'C', 'CLOSE')
-    return
-
-openReadDataFile:
-    select
-    when (os = 'WIN64') then call openReadDataFileWIN
-    when (os = 'TSO')   then call openReadDataFileTSO
-    end
-    return
-
-openReadDataFileWIN:
-    dataFileRc = stream(DATA_FILE, 'C', 'OPEN READ')
-    call checkRc 'openReadDataFileWIN' ,
-            dataFileRc 'READY:' '???'
-    if (dataFileRc = 'READY:')
-    then do
-        openReadDataFileStatus = 'ok'
-        dataFileRecordsCursor = 1
-        call initDataFileReadCursor
-    end
-    else do
-        say
-        say 'open-read data file KO'
-        say 'dataFileRc ['dataFileRc']'
-    end
-    return
-
-initDataFileReadCursor:
-    dataFileRc = linein(DATA_FILE, dataFileRecordsCursor, 0)
-    call checkRc 'initDataFileReadCursor' ,
-            dataFileRc ''
-    return
-
-openReadDataFileTSO:
-    call allocateDataFile
-    openReadDataFileStatus = 'ok'
-    return
-
-allocateDataFile:
-    address tso
-            'free ddname(dataDD)'
-        'allocate ddname(dataDD) dataset('DATA_FILE') shr'
-    address
-    call checkRc 'allocateDataFile' ,
-            dataFileRc 0
-    return
-
-readDataFileRecord:
-    select
-    when (os = 'WIN64') then call readDataFileRecordWIN
-    when (os = 'TSO')   then call readDataFileRecordTSO
-    end
-    return
-
-readDataFileRecordWIN:
-    dataFileRecord = linein(DATA_FILE)
-    dataFileRecordsCursor = dataFileRecordsCursor + 1
-    return
-
-readDataFileRecordTSO:
-    dataFileStem. = ''
-    address tso
-        'execio 1 diskr dataDD (stem dataFileStem.'
-    address
-    call checkRc 'readDataFileRecordTSO' ,
-            rc 0
-    dataFileRecord = dataFileStem.1
-    return
-
-closeDataFile:
-    select
-    when (os = 'WIN64') then call closeDataFileWIN
-    when (os = 'TSO')   then nop
-    end
-    return
-
-closeDataFileWIN:
-    dataFileRc = stream(DATA_FILE, 'C', 'CLOSE')
-    return
-
-openReadCopyFile:
-    select
-    when (os = 'WIN64') then call openReadCopyFileWIN
-    when (os = 'TSO')   then call openReadCopyFileTSO
-    end
-    return
-
-openReadCopyFileWIN:
-    openReadCopyFileStatus = ''
-    copyFileRc = stream(COPY_FILE, 'C', 'OPEN READ')
-    call checkRc 'openReadCopyFileWIN' ,
-            copyFileRc 'READY:' '???'
-    if (copyFileRc = 'READY:')
-    then do
-        openReadCopyFileStatus = 'ok'
-        call initCopyFileReadCursor
-        copyRecsCounter = lines(COPY_FILE, 'C')
-    end
-    else do
-        say
-        say 'open-read copy file KO'
-        say 'copyFileRc ['copyFileRc']'
-    end
-    return
-
-initCopyFileReadCursor:
-    copyFileRc = linein(COPY_FILE, 1, 0)
-    call checkRc 'initCopyFileReadCursor' ,
-            copyFileRc ''
-    return
-
-openReadCopyFileTSO:
-    call allocateCopyFile
-    openReadCopyFileStatus = 'ok'
-    return
-
-allocateCopyFile:
-    address tso
-            'free ddname(copyDD)'
-        'allocate ddname(copyDD) dataset('COPY_FILE') shr'
-    address
-    call checkRc 'allocateCopyFile' ,
-            rc 0
-    return
-
-readCopyRecord:
-    select
-    when (os = 'WIN64') then call readCopyRecordWIN
-    when (os = 'TSO')   then call readCopyRecordTSO
-    end
-    return
-
-readCopyRecordWIN:
-    copyRecord = linein(COPY_FILE)
-    return
-
-readCopyRecordTSO:
-    copyFileStem. = ''
-    address tso
-        'execio 1 diskr copyDD (stem copyFileStem.'
-    address
-    call checkRc 'readCopyRecordTSO' ,
-            rc 0
-    copyFileRecord = copyFileStem.1
-    return
-
-openReadSelRecsFile:
-    select
-    when (os = 'WIN64') then call openReadSelRecsFileWIN
-    when (os = 'TSO')   then call openReadSelRecsFileTSO
-    end
-    return
-
-openReadSelRecsFileWIN:
-    selRecsFileRc = stream(selRecsFile, 'C', 'OPEN READ')
-    call checkRc 'openReadSelRecsFileWIN' ,
-            selRecsFileRc 'READY:' '???'
-    select
-    when (selRecsFileRc = 'READY:')
-    then do
-        call initSelRecsFileReadCursor
-        selRecsRecordsCounter = lines(selRecsFile, 'C')
-    end
-    otherwise
-        say
-        say 'open-read select file KO'
-        say 'selRecsFileRc ['selRecsFileRc']'
-    end
-    return
-
-initSelRecsFileReadCursor:
-    selRecsFileRc = linein(selRecsFileRc, 1, 0)
-    call checkRc 'openReadSelRecsFileWIN' ,
-            selRecsFileRc ''
-    return
-
-openReadSelRecsFileTSO:
-    call allocateSelRecsFile
-    return
-
-allocateSelRecsFile:
-    address tso
-            'free ddname(selRcsDD)'
-        'allocate ddname(selRcsDD) dataset('selRecsFile') shr'
-    address
-    call checkRc 'allocateSelRecsFile' ,
-            rc 0
-    return
-
-openWriteSelRecsFile:
-    select
-    when (os = 'WIN64') then call openWriteSelRecsFileWIN
-    when (os = 'TSO')   then call openWriteSelRecsFileTSO
-    end
-    return
-
-openWriteSelRecsFileWIN:
-    selRecsFileRc = stream(selRecsFile, 'C', 'OPEN WRITE')
-    call checkRc 'openWriteSelRecsFileWIN' ,
-            selRecsFileRc 'READY:'
-    if (selRecsFileRc = 'READY:')
-    then do
-        call initSelRecsFileWriteCursor
-    end
-    else do
-        say
-        say 'open-write selRecsFile KO'
-        say 'selRecsFileRc ['selRecsFileRc']'
-    end
-    return
-
-initSelRecsFileWriteCursor:
-    selRecsFileRc = lineout(selRecsFile, , 1)
-    call checkRc 'initSelRecsFileWriteCursor' ,
-            rc 0
-    return
-
-openWriteSelRecsFileTSO:
-    call allocateSelRecsFile
-    return
-
-readSelRecsRecord:
-    select
-    when (os = 'WIN64') then call readSelRecsRecordWIN
-    when (os = 'TSO')   then call readSelRecsRecordTSO
-    end
-    return
-
-readSelRecsRecordWIN:
-    selectRecord = linein(selRecsFile)
-    return
-
-readSelRecsRecordTSO:
-    selRecsFileStem. = ''
-    address tso
-        'execio 1 diskr selRecsDD (stem selRecsFileStem.'
-    address
-    call checkRc 'readSelRecsRecordTSO' ,
-            rc 0
-    selRecsFileRecord = selRecsFileStem.1
-    return
-
-writeSelRecsRecord:
-    selRecsFileRc = lineout(selRecsFile, selRecsRecord)
-    call checkRc 'writeSelRecsRecord' ,
-            selRecsFileRc 0
-    return
-
-startSelRecsFile:
-    select
-    when (os = 'WIN64') then call startSelRecsFileWIN
-    when (os = 'TSO')   then call startSelRecsFileTSO
-    end
-    return
-
-startSelRecsFileWIN:
-    address system
-        'start "" "'selRecsFile'"'
-    address
-    call checkRc 'startSelRecsFileWIN' ,
-            rc 0
-    return
-
-startSelRecsFileTSO:
-    address ispexec
-        'edit dataset ('selRecsFile')'
-    address
-    call checkRc 'startSelRecsFileTSO' ,
-            rc 0
-    return
-
-closeSelRecsFile:
-    select
-    when (os = 'WIN64') then call closeSelRecsFileWIN
-    when (os = 'TSO')   then nop
-    end
-    return
-
-closeSelRecsFileWIN:
-    selRecsFileRc = stream(selRecsFile, 'C', 'CLOSE')
-    return
-
-openReadSelColsFile:
-    select
-    when (os = 'WIN64') then call openReadSelColsFileWIN
-    when (os = 'TSO')   then call openReadSelColsFileTSO
-    end
-    return
-
-openReadSelColsFileWIN:
-    selColsFileRc = stream(selColsFile, 'C', 'OPEN READ')
-    call checkRc 'openReadSelColsFileWIN' ,
-            selColsFileRc 'READY:'
-    select
-    when (selColsFileRc = 'READY:')
-    then do
-        call initSelColsFileReadCursor
-        selColsRecordsCounter = lines(selColsFile, 'C')
-    end
-    otherwise
-        say
-        say 'open-read selCols file KO'
-        say 'selColsFileRc ['selColsFileRc']'
-        /* no error
-        call exitError
-        */
-    end
-    return
-
-initSelColsFileReadCursor:
-    selColsFileRc = linein(selColsFileRc, 1, 0)
-    call checkRc 'initSelColsFileReadCursor' ,
-            selColsFileRc ''
-    return
-
-openReadSelColsFileTSO:
-    call allocateSelColsFile
-    return
-
-allocateSelColsFile:
-    address tso
-            'free ddname(selClsDD)'
-        'allocate ddname(selClsDD) dataset('selColsFile') shr'
-    address
-    call checkRc 'allocateSelColsFile' ,
-            rc 0
-    return
-
-openWriteSelColsFile:
-    select
-    when (os = 'WIN64') then call openWriteSelColsFileWIN
-    when (os = 'TSO')   then call openWriteSelColsFileTSO
-    end
-    return
-
-openWriteSelColsFileWIN:
-    selColsFileRc = stream(selColsFile, 'C', 'OPEN WRITE')
-    call checkRc 'openWriteSelColsFileWIN' ,
-            selColsFileRc 'READY:' '???'
-    if (selColsFileRc = 'READY:')
-    then do
-        call initSelColsFileWriteCursor
-    end
-    else do
-        say
-        say 'open-write selCols file KO'
-        say 'selColsFileRc ['selColsFileRc']'
-    end
-    return
-
-initSelColsFileWriteCursor:
-    selColsFileRc = lineout(selColsFile, , 1)
-    call checkRc 'initSelColsFileWriteCursor' ,
-            selColsFileRc 0
-    return
-
-openWriteSelColsFileTSO:
-    call allocateSelColsFile
-    return
-
-readSelColsRecord:
-    select
-    when (os = 'WIN64') then call readSelColsRecordWIN
-    when (os = 'TSO')   then call readSelColsRecordTSO
-    end
-    return
-
-readSelColsRecordWIN:
-    selColsRecord = linein(selColsFile)
-    return
-
-readSelColsRecordTSO:
-    selColsFileStem. = ''
-    address tso
-        'execio 1 diskr selColsDD (stem selColsFileStem.'
-    address
-    call checkRc 'readSelColsRecordTSO' ,
-            rc 0
-    selColsFileRecord = selColsFileStem.1
-    return
-
-writeSelColsRecord:
-    select
-    when (os = 'WIN64') then call writeSelColsRecordWIN
-    when (os = 'TSO')   then call writeSelColsRecordTSO
-    end
-    return
-
-writeSelColsRecordWIN:
-    selColsFileRc = lineout(selColsFile, selColsRecord)
-    call checkRc 'writeSelColsRecordWIN' ,
-            selColsFileRc 0
-    return
-
-writeSelColsRecordTSO:
-    selColsFileStem. = ''
-    selColsFileStem.1 = selColsRecord
-    selColsFileStem.0 = 1
-    address tso
-        'execio 1 diskw selClsDD (selColsFileStem.'
-    address
-    call checkRc 'writeSelColsRecordTSO' ,
-            rc 0
-    return
-
-startSelColsFile:
-    select
-    when (os = 'WIN64') then call startSelColsFileWIN
-    when (os = 'TSO')   then call startSelColsFileTSO
-    end
-    return
-
-startSelColsFileWIN:
-    address system
-        'start "" "'selColsFile'"'
-    address
-    call checkRc 'startSelColsFileWIN' ,
-            rc 0
-    return
-
-startSelColsFileTSO:
-    address ispexec
-        'edit dataset ('selColsFile')'
-    address
-    call checkRc 'startSelColsFileTSO' ,
-            rc 0
-    return
-
-closeSelColsFile:
-    select
-    when (os = 'WIN64') then call closeSelColsFileWIN
-    when (os = 'TSO')   then nop
-    end
-    return
-
-closeSelColsFileWIN:
-    selColsFileRc = stream(selColsFile, 'C', 'CLOSE')
-    return
-
-openWriteOutCopyFile:
-    select
-    when (os = 'WIN64') then call openWriteOutCopyFileWIN
-    when (os = 'TSO')   then call openWriteOutCopyFileTSO
-    end
-    return
-
-openWriteOutCopyFileWIN:
-    outCopyFileRc = stream(outCopyFile, 'C', 'OPEN WRITE')
-    call checkRc 'openWriteOutCopyFileWIN' ,
-            outCopyFileRc 'READY:'
-    if (outCopyFileRc = 'READY:')
-    then do
-        call initOutCopyFileCursor
-    end
-    else do
-        say
-        say 'open-write outCopyFile KO'
-        say 'outCopyFileRc ['outCopyFileRc']'
-    end
-    return
-
-initOutCopyFileCursor:
-    outCopyFileRc = lineout(outCopyFile, , 1)
-    call checkRc 'initOutCopyFileCursor' ,
-            outCopyFileRc 0
-    return
-
-openWriteOutCopyFileTSO:
-    call allocateOutCopyFile
-    return
-
-allocateOutCopyFile:
-    address tso
-            'free ddname(outCpyDD)'
-        'allocate ddname(outCpyDD) dataset('outCopyFile') shr'
-    address
-    call checkRc 'allocateOutCopyFile' ,
-            rc 0
-    return
-
-writeOutCopyRecord:
-    select
-    when (os = 'WIN64') then call writeOutCopyRecordWIN
-    when (os = 'TSO')   then call writeOutCopyRecordTSO
-    end
-    return
-
-writeOutCopyRecordWIN:
-    outCopyFileRc = lineout(outCopyFile, outCopyRecord)
-    call checkRc 'writeOutCopyRecordWIN' ,
-            outCopyFileRc 0
-    return
-
-writeOutCopyRecordTSO:
-    outCopyFileStem. = ''
-    outCopyFileStem.1 = outCopyRecord
-    outCopyFileStem.0 = 1
-    address tso
-        'execio 1 diskw outCpyDD (outCopyFileStem.'
-    address
-    call checkRc 'writeOutCopyRecordTSO' ,
-            rc 0
-    return
-
-startOutCopyFile:
-    select
-    when (os = 'WIN64') then call startOutCopyFileWIN
-    when (os = 'TSO')   then call startOutCopyFileTSO
-    end
-    return
-
-startOutCopyFileWIN:
-    address system
-        'start "" "'outCopyFile'"'
-    address
-    call checkRc 'startOutCopyFileWIN' ,
-            rc 0
-    return
-
-startOutCopyFileTSO:
-    address ispexec
-        'edit dataset ('outCopyFile')'
-    address
-    call checkRc 'startOutCopyFileTSO' ,
-            rc 0
-    return
-
-openWriteOutDataFile:
-    select
-    when (os = 'WIN64') then call openWriteOutDataFileWIN
-    when (os = 'TSO')   then call openWriteOutDataFileTSO
-    end
-    return
-
-openWriteOutDataFileWIN:
-    outDataFileRc = stream(outDataFile, 'C', 'OPEN WRITE')
-    call checkRc 'openWriteOutDataFileWIN' ,
-            outDataFileRc 'READY:'
-    if (outDataFileRc = 'READY:')
-    then do
-        call initOutDataFileWriteCursor
-    end
-    else do
-        say
-        say 'open-write output file KO'
-        say 'outDataFileRc ['outDataFileRc']'
-    end
-    return
-
-initOutDataFileWriteCursor:
-    outDataFileRc = lineout(outDataFile, , 1)
-    call checkRc 'initOutDataFileWriteCursor' ,
-            outDataFileRc 0
-    return
-
-openWriteOutDataFileTSO:
-    call allocateOutDataFile
-    return
-
-allocateOutDataFile:
-    address tso
-            'free ddname(outDtaDD)'
-        'allocate ddname(outDtaDD) dataset('outDataFile') shr'
-    address
-    call checkRc 'allocateOutDataFile' ,
-            rc 0
-    return
-
-writeOutputRecord:
-    select
-    when (os = 'WIN64') then call writeOutputRecordWIN
-    when (os = 'TSO')   then call writeOutputRecordTSO
-    end
-    return
-
-writeOutputRecordWIN:
-    outDataFileRc = lineout(outDataFile, outputRecord)
-    call checkRc 'writeOutputRecordWIN' ,
-            outDataFileRc 0
-    return
-
-writeOutputRecordTSO:
-    outputFileStem. = ''
-    outputFileStem.1 = outputRecord
-    outputFileStem.0 = 1
-    address tso
-        'execio 1 diskw outputDD (outputFileStem.'
-    address
-    call checkRc 'writeOutputRecordTSO' ,
-            rc 0
-    return
-
-startOutDataFile:
-    select
-    when (os = 'WIN64') then call startOutDataFileWIN
-    when (os = 'TSO')   then call startOutDataFileTSO
-    end
-    return
-
-startOutDataFileWIN:
-    address system
-        'start "" "'outDataFile'"'
-    address
-    call checkRc 'startOutDataFileWIN' ,
-            rc 0
-    return
-
-startOutDataFileTSO:
-    address ispexec
-        'edit dataset ('outDataFile')'
-    address
-    call checkRc 'startOutDataFileTSO' ,
-            rc 0
-    return
 
 /* exit */
 
@@ -4136,22 +3377,22 @@ exitError:
     pic s9(5) comp-3  00123- ?       00123D        00123D
     * different sizes, same integers, different decimals
         ---------- number  ASCII data -------  length  notes ---------
-        -456789012,123456  {    Eg‰ ?!#Em}         13  !=x'11' m=x'6D'
-        -456789012,12345   {    Eg‰ ?!#E §}        14  !=x'11' §=x'0D'
-        -456789012,1234    {    Eg‰ ?!#@ §}        14  !=x'11' §=x'0D'
-        -456789012,123     {    Eg‰ ?!#   §}       15  !=x'11' §=x'0D'
-        -456789012,12      {    Eg‰ ?!    §}       15  !=x'11' §=x'0D'
-        -456789012,1       {    Eg‰ ?!     §}      16  !=x'11' §=x'0D'
-        -456789012,        {    Eg‰ ?      §}      16  !=x'10' §=x'0D'
+        -456789012,123456  {    Egโ€ฐ ?!#Em}         13  !=x'11' m=x'6D'
+        -456789012,12345   {    Egโ€ฐ ?!#E ยง}        14  !=x'11' ยง=x'0D'
+        -456789012,1234    {    Egโ€ฐ ?!#@ ยง}        14  !=x'11' ยง=x'0D'
+        -456789012,123     {    Egโ€ฐ ?!#   ยง}       15  !=x'11' ยง=x'0D'
+        -456789012,12      {    Egโ€ฐ ?!    ยง}       15  !=x'11' ยง=x'0D'
+        -456789012,1       {    Egโ€ฐ ?!     ยง}      16  !=x'11' ยง=x'0D'
+        -456789012,        {    Egโ€ฐ ?      ยง}      16  !=x'10' ยง=x'0D'
     * different sizes, different integers, different decimals
         ---------- number  ASCII data -------  length  notes ---------
-        +456789012,        {    Eg‰ ?      ?}      16   =x'20' ?=x'0C'
-        +456789012,1       {    Eg‰ ?!     ?}      16  !=x'21' ?=x'0C'
-        +456789012,12      {    Eg‰ ?!    ?}       15  !=x'21' ?=x'0C'
-        +456789012,123     {    Eg‰ ?!#   ?}       15  !=x'21' ?=x'0C'
-         +56789012,1234    {     ?g‰ ?!#@ ?}       15  !=x'21' ?=x'0C'
-          +6789012,12345   {      g‰ ?!#E ?}       15  !=x'21' ?=x'0C'
-           +789012,123456  {       ?‰ ?!#El}       15  !=x'21' l=x'6C'
+        +456789012,        {    Egโ€ฐ ?      ?}      16   =x'20' ?=x'0C'
+        +456789012,1       {    Egโ€ฐ ?!     ?}      16  !=x'21' ?=x'0C'
+        +456789012,12      {    Egโ€ฐ ?!    ?}       15  !=x'21' ?=x'0C'
+        +456789012,123     {    Egโ€ฐ ?!#   ?}       15  !=x'21' ?=x'0C'
+         +56789012,1234    {     ?gโ€ฐ ?!#@ ?}       15  !=x'21' ?=x'0C'
+          +6789012,12345   {      gโ€ฐ ?!#E ?}       15  !=x'21' ?=x'0C'
+           +789012,123456  {       ?โ€ฐ ?!#El}       15  !=x'21' l=x'6C'
 */
 
 /* compNote:
@@ -4164,28 +3405,1082 @@ exitError:
 
 
 
+/* proFile */
+
+openReadProFile:
+    select
+    when (os = 'WIN64') then call openReadProFileWIN
+    when (os = 'TSO')   then call openReadProFileTSO
+    end
+    if (openReadProFileStatus = 'ok')
+    then do
+        call setProFileRecsCounter
+    end
+    return
+
+openReadProFileWIN:
+    proFileRc = stream(PRO_FILE, 'C', 'OPEN READ')
+    call checkRc 'openReadProFileWIN' ,
+            proFileRc 'READY:'
+    openReadProFileStatus = 'ok'
+    call initProFileReadCursor
+    return
+
+initProFileReadCursor:
+    proFileRc = linein(PRO_FILE, 1, 0)
+    call checkRc 'initProFileReadCursor' ,
+            proFileRc ''
+    return
+
+openReadProFileTSO:
+    if (sysdsn(PRO_FILE_Q) = 'OK')
+    then do
+        call allocateProFile
+        openReadProFileStatus = 'ok'
+    end
+    else do
+        call allocateNewProFile
+        openReadProFileStatus = 'ko'
+    end
+    return
+
+allocateProFile:
+    call closeProFile
+    address tso
+        'allocate ddname(proDD) dataset('PRO_FILE_Q') shr'
+    address
+    call checkRc 'allocateProFile' ,
+            rc 0
+    return
+
+allocateNewProFile:
+    call closeProFile
+    address tso
+        'allocate ddname(proDD) dataset('PRO_FILE_Q') new' ,
+                'space(50 1) tracks release' ,
+                'lrecl(80) block(1600) recfm(f b) dsorg(ps)'
+    address
+    call checkRc 'allocateNewProFile' ,
+            rc 0
+    return
+
+setProFileRecsCounter:
+    select
+    when (os = 'WIN64') then call setProFileRecsCounterWIN
+    when (os = 'TSO')   then call setProFileRecsCounterTSO
+    end
+    return
+
+setProFileRecsCounterWIN:
+    proFileRecsCounter = lines(PRO_FILE, 'C')
+    return
+
+setProFileRecsCounterTSO:
+    proFileStem. = ''
+    address tso
+        'execio * diskr proDD (stem proFileStem.'
+        'execio 0 diskr proDD (finis) '
+    address
+    call checkRc 'setProFileRecsCounterTSO' ,
+            rc 0
+    proFileRecsCounter = proFileStem.0
+    proFileStem. = ''
+    return
+
+readProRecord:
+    select
+    when (os = 'WIN64') then call readProRecordWIN
+    when (os = 'TSO')   then call readProRecordTSO
+    end
+    return
+
+readProRecordWIN:
+    proRecord = linein(PRO_FILE)
+    return
+
+readProRecordTSO:
+    proFileStem. = ''
+    address tso
+        'execio 1 diskr proDD (stem proFileStem.'
+    address
+    call checkRc 'readProRecordTSO' ,
+            rc 0
+    proRecord = proFileStem.1
+    return
+
+openWriteProFile:
+    select
+    when (os = 'WIN64') then call openWriteProFileWIN
+    when (os = 'TSO')   then nop
+    end
+    return
+
+openWriteProFileWIN:
+    proFileRc = stream(PRO_FILE, 'C', 'OPEN WRITE')
+    call checkRc 'openWriteProFileWIN' ,
+            proFileRc 'READY:'
+    call initProFileWriteCursor
+    return
+
+initProFileWriteCursor:
+    proFileRc = lineout(PRO_FILE, , 1)
+    call checkRc 'initProFileWriteCursor' ,
+            proFileRc 0
+    proFileRc = 'ok'
+    return
+
+writeProRecord:
+    select
+    when (os = 'WIN64') then call writeProRecordWIN
+    when (os = 'TSO')   then call writeProRecordTSO
+    end
+    return
+
+writeProRecordWIN:
+    proFileRc = lineout(PRO_FILE, proRecord)
+    call checkRc 'writeProRecordWIN' ,
+            proFileRc 0
+    return
+
+writeProRecordTSO:
+    proFileStem. = ''
+    proFileStem.1 = proRecord
+    proFileStem.0 = 1
+    address tso
+        'execio 1 diskw proDD (stem proFileStem.'
+    address
+    call checkRc 'writeProRecordTSO' ,
+            rc 0
+    return
+
+startPRO_FILE:
+    call closeProFile
+    select
+    when (os = 'WIN64') then call startPRO_FILE_WIN
+    when (os = 'TSO')   then call startPRO_FILE_TSO
+    end
+    return
+
+startPRO_FILE_WIN:
+    address system
+        'start "" "'PRO_FILE'"'
+    address
+    call checkRc 'startPRO_FILE_WIN' ,
+            rc 0
+    return
+
+startPRO_FILE_TSO:
+    address ispexec
+        'edit dataset ('PRO_FILE_Q')'
+    address
+    call checkRc 'startPRO_FILE_TSO' ,
+            rc 0
+    return
+
+closeProFile:
+    select
+    when (os = 'WIN64') then call closeProFileWIN
+    when (os = 'TSO')   then call closeProFileTSO
+    end
+    return
+
+closeProFileWIN:
+    proFileRc = stream(PRO_FILE, 'C', 'CLOSE')
+    return
+
+closeProFileTSO:
+    msgStatus = msg(off)
+    address tso
+        'execio 0 diskr proDD (finis) '
+        'free ddname(proDD)'
+    address
+    msgStatus = msg(on)
+    call checkRc 'closeProFileTSO' ,
+            rc 0
+    return
 
 
 
 
 
+/* dataFile */
+
+openReadDataFile:
+    select
+    when (os = 'WIN64') then call openReadDataFileWIN
+    when (os = 'TSO')   then call openReadDataFileTSO
+    end
+    if (openReadDataFileStatus = 'ok')
+    then do
+        call setDataFileRecsCounter
+    end
+    return
+
+openReadDataFileWIN:
+    dataFileRc = stream(DATA_FILE, 'C', 'OPEN READ')
+    call checkRc 'openReadDataFileWIN' ,
+            dataFileRc 'READY:'
+    openReadDataFileStatus = 'ok'
+    call initDataFileReadCursor
+    return
+
+initDataFileReadCursor:
+    dataFileRc = linein(DATA_FILE, 1, 0)
+    call checkRc 'initDataFileReadCursor' ,
+            dataFileRc ''
+    return
+
+openReadDataFileTSO:
+    DATA_FILE_Q = "'" || DATA_FILE || "'"
+    call allocateDataFile
+    openReadDataFileStatus = 'ok'
+    return
+
+allocateDataFile:
+    call closeDataFile
+    address tso
+        'allocate ddname(dataDD) dataset('DATA_FILE_Q') shr'
+    address
+    call checkRc 'allocateDataFile' ,
+            rc 0
+    return
+
+setDataFileRecsCounter:
+    select
+    when (os = 'WIN64') then call setDataFileRecsCounterWIN
+    when (os = 'TSO')   then call setDataFileRecsCounterTSO
+    end
+    return
+
+setDataFileRecsCounterWIN:
+    dataFileRecsCounter = lines(DATA_FILE, 'C')
+    return
+
+setDataFileRecsCounterTSO:
+    dataFileStem. = ''
+    address tso
+        'execio * diskr proDD (stem dataFileStem.'
+        'execio 0 diskr proDD (finis) '
+    address
+    call checkRc 'setDataFileRecsCounterTSO' ,
+            rc 0
+    dataFileRecsCounter = dataFileStem.0
+    dataFileStem. = ''
+    return
+
+readDataFileRecord:
+    select
+    when (os = 'WIN64') then call readDataFileRecordWIN
+    when (os = 'TSO')   then call readDataFileRecordTSO
+    end
+    return
+
+readDataFileRecordWIN:
+    dataFileRecord = linein(DATA_FILE)
+    return
+
+readDataFileRecordTSO:
+    dataFileStem. = ''
+    address tso
+        'execio 1 diskr dataDD (stem dataFileStem.'
+    address
+    call checkRc 'readDataFileRecordTSO' ,
+            rc 0
+    dataFileRecord = dataFileStem.1
+    return
+
+closeDataFile:
+    select
+    when (os = 'WIN64') then call closeDataFileWIN
+    when (os = 'TSO')   then call closeDataFileTSO
+    end
+    return
+
+closeDataFileWIN:
+    dataFileRc = stream(DATA_FILE, 'C', 'CLOSE')
+    return
+
+closeDataFileTSO:
+    msgStatus = msg(off)
+    address tso
+        'execio 0 diskr dataDD (finis) '
+        'free ddname(dataDD)'
+    address
+    msgStatus = msg(on)
+    call checkRc 'closeDataFileTSO' ,
+            rc 0
+    return
 
 
 
 
 
+/* copyFile */
+
+openReadCopyFile:
+    select
+    when (os = 'WIN64') then call openReadCopyFileWIN
+    when (os = 'TSO')   then call openReadCopyFileTSO
+    end
+    if (openReadCopyFileStatus = 'ok')
+    then do
+        call setCopyRecsCounter
+    end
+    return
+
+openReadCopyFileWIN:
+    copyFileRc = stream(COPY_FILE, 'C', 'OPEN READ')
+    call checkRc 'openReadCopyFileWIN' ,
+            copyFileRc 'READY:'
+    openReadCopyFileStatus = 'ok'
+    call initCopyFileReadCursor
+    return
+
+initCopyFileReadCursor:
+    copyFileRc = linein(COPY_FILE, 1, 0)
+    call checkRc 'initCopyFileReadCursor' ,
+            copyFileRc ''
+    return
+
+openReadCopyFileTSO:
+    COPY_FILE_Q = "'"COPY_FILE"'"
+    call allocateCopyFile
+    openReadCopyFileStatus = 'ok'
+    return
+
+allocateCopyFile:
+    call closeCopyFile
+    address tso
+        'allocate ddname(copyDD) dataset('COPY_FILE_Q') shr'
+    address
+    call checkRc 'allocateCopyFile' ,
+            rc 0
+    return
+
+setCopyRecsCounter:
+    select
+    when (os = 'WIN64') then call setCopyRecsCounterWIN
+    when (os = 'TSO')   then call setCopyRecsCounterTSO
+    end
+    return
+
+setCopyRecsCounterWIN:
+    copyRecsCounter = lines(COPY_FILE, 'C')
+    return
+
+setCopyRecsCounterTSO:
+    copyFileStem. = ''
+    address tso
+        'execio * diskr copyDD (stem copyFileStem.'
+        'execio 0 diskr copyDD (finis) '
+    address
+    call checkRc 'setCopyRecsCounterTSO' ,
+            rc 0
+    copyRecsCounter = copyFileStem.0
+    copyFileStem. = ''
+    return
+
+readCopyRecord:
+    select
+    when (os = 'WIN64') then call readCopyRecordWIN
+    when (os = 'TSO')   then call readCopyRecordTSO
+    end
+    return
+
+readCopyRecordWIN:
+    copyRecord = linein(COPY_FILE)
+    return
+
+readCopyRecordTSO:
+    copyFileStem. = ''
+    address tso
+        'execio 1 diskr copyDD (stem copyFileStem.'
+    address
+    call checkRc 'readCopyRecordTSO' ,
+            rc 0
+    copyRecord = copyFileStem.1
+    return
+
+closeCopyFile:
+    select
+    when (os = 'WIN64') then call closeCopyFileWIN
+    when (os = 'TSO')   then call closeCopyFileTSO
+    end
+    return
+
+closeCopyFileWIN:
+    copyFileRc = stream(copyFile, 'C', 'CLOSE')
+    return
+
+closeCopyFileTSO:
+    msgStatus = msg(off)
+    address tso
+        'execio 0 diskr copyDD (finis) '
+        'free ddname(copyDD)'
+    address
+    msgStatus = msg(on)
+    call checkRc 'closeCopyFileTSO' ,
+            rc 0
+    return
 
 
 
 
 
+/* selRecsFile */
+
+openReadSelRecsFile:
+    select
+    when (os = 'WIN64') then call openReadSelRecsFileWIN
+    when (os = 'TSO')   then call openReadSelRecsFileTSO
+    end
+    call setSelRecsRecsCounter
+    return
+
+openReadSelRecsFileWIN:
+    selRecsFileRc = stream(selRecsFile, 'C', 'OPEN READ')
+    call checkRc 'openReadSelRecsFileWIN' ,
+            selRecsFileRc 'READY:'
+    openReadSelRecsFileStatus = 'ok'
+    call initSelRecsFileReadCursor
+    return
+
+initSelRecsFileReadCursor:
+    selRecsFileRc = linein(selRecsFile, 1, 0)
+    call checkRc 'openReadSelRecsFileWIN' ,
+            selRecsFileRc ''
+    return
+
+openReadSelRecsFileTSO:
+    if (sysdsn(selRecsFile) = 'OK')
+    then do
+        call allocateSelRecsFile
+        openReadSelRecsFileStatus = 'ok'
+    end
+    else do
+        call allocateNewSelRecsFile
+        openReadSelRecsFileStatus = 'ko'
+    end
+    return
+
+allocateSelRecsFile:
+    call closeSelRecsFile
+    address tso
+        'allocate ddname(selRcsDD) dataset('selRecsFile') shr'
+    address
+    call checkRc 'allocateSelRecsFile' ,
+            rc 0
+    return
+
+allocateNewSelRecsFile:
+    call closeSelRecsFile
+    address tso
+        'allocate ddname(selRcsDD) dataset('selRecsFile') new' ,
+                'space(50 1) tracks release' ,
+                'lrecl(80) block(1600) recfm(f b) dsorg(ps)'
+    address
+    call checkRc 'allocateNewSelRecsFile' ,
+            rc 0
+    return
+
+setSelRecsRecsCounter:
+    selRecsRecsCounter = 0
+    if (openReadSelRecsFileStatus = 'ok')
+    then do
+        select
+        when (os = 'WIN64') then call setSelRecsRecsCounterWIN
+        when (os = 'TSO')   then call setSelRecsRecsCounterTSO
+        end
+    end
+    return
+
+setSelRecsRecsCounterWIN:
+    selRecsRecsCounter = lines(selRecsFile, 'C')
+    return
+
+setSelRecsRecsCounterTSO:
+    selRecsFileStem. = ''
+    address tso
+        'execio * diskr selRcsDD (stem selRecsFileStem.'
+        'execio 0 diskr selRcsDD (finis) '
+    address
+    call checkRc 'setSelRecsRecsCounterTSO' ,
+            rc 0
+    selRecsRecsCounter = selRecsFileStem.0
+    selRecsFileStem. = ''
+    return
+
+openWriteSelRecsFile:
+    select
+    when (os = 'WIN64') then call openWriteSelRecsFileWIN
+    when (os = 'TSO')   then call openWriteSelRecsFileTSO
+    end
+    return
+
+openWriteSelRecsFileWIN:
+    selRecsFileRc = stream(selRecsFile, 'C', 'OPEN WRITE')
+    call checkRc 'openWriteSelRecsFileWIN' ,
+            selRecsFileRc 'READY:'
+    call initSelRecsFileWriteCursor
+    return
+
+initSelRecsFileWriteCursor:
+    selRecsFileRc = lineout(selRecsFile, , 1)
+    call checkRc 'initSelRecsFileWriteCursor' ,
+            rc 0
+    return
+
+openWriteSelRecsFileTSO:
+    call allocateSelRecsFile
+    return
+
+readSelRecsRecord:
+    select
+    when (os = 'WIN64') then call readSelRecsRecordWIN
+    when (os = 'TSO')   then call readSelRecsRecordTSO
+    end
+    return
+
+readSelRecsRecordWIN:
+    selectRecord = linein(selRecsFile)
+    return
+
+readSelRecsRecordTSO:
+    selRecsFileStem. = ''
+    address tso
+        'execio 1 diskr selRcsDD (stem selRecsFileStem.'
+    address
+    call checkRc 'readSelRecsRecordTSO' ,
+            rc 0
+    selectRecord = selRecsFileStem.1
+    return
+
+writeSelRecsRecord:
+    select
+    when (os = 'WIN64') then call writeSelRecsRecordWIN
+    when (os = 'TSO')   then call writeSelRecsRecordTSO
+    end
+    return
+
+writeSelRecsRecordWIN:
+    selRecsFileRc = lineout(selRecsFile, selRecsRecord)
+    call checkRc 'writeSelRecsRecord' ,
+            selRecsFileRc 0
+    return
+
+writeSelRecsRecordTSO:
+    selRecsFileStem. = ''
+    selRecsFileStem.1 = selRecsRecord
+    selRecsFileStem.0 = 1
+    address tso
+        'execio 1 diskw selRcsDD (stem selRecsFileStem.'
+    address
+    call checkRc 'writeSelRecsRecordTSO' ,
+            rc 0
+    return
+
+startSelRecsFile:
+    call closeSelRecsFile
+    select
+    when (os = 'WIN64') then call startSelRecsFileWIN
+    when (os = 'TSO')   then call startSelRecsFileTSO
+    end
+    return
+
+startSelRecsFileWIN:
+    address system
+        'start "" "'selRecsFile'"'
+    address
+    call checkRc 'startSelRecsFileWIN' ,
+            rc 0
+    return
+
+startSelRecsFileTSO:
+    address ispexec
+        'edit dataset ('selRecsFile')'
+    address
+    call checkRc 'startSelRecsFileTSO' ,
+            rc 0
+    return
+
+closeSelRecsFile:
+    select
+    when (os = 'WIN64') then call closeSelRecsFileWIN
+    when (os = 'TSO')   then call closeSelRecsFileTSO
+    end
+    return
+
+closeSelRecsFileWIN:
+    selRecsFileRc = stream(selRecsFile, 'C', 'CLOSE')
+    return
+
+closeSelRecsFileTSO:
+    msgStatus = msg(off)
+    address tso
+        'execio 0 diskr selRcsDD (finis) '
+        'free ddname(selRcsDD)'
+    address
+    msgStatus = msg(on)
+    call checkRc 'closeSelRecsFileTSO' ,
+            rc 0
+    return
 
 
 
 
 
+/* selColsFile */
+
+openReadSelColsFile:
+    select
+    when (os = 'WIN64') then call openReadSelColsFileWIN
+    when (os = 'TSO')   then call openReadSelColsFileTSO
+    end
+    call setSelColsRecsCounter
+    return
+
+openReadSelColsFileWIN:
+    selColsFileRc = stream(selColsFile, 'C', 'OPEN READ')
+    call checkRc 'openReadSelColsFileWIN' ,
+            selColsFileRc 'READY:'
+    openReadSelColsFileStatus = 'ok'
+    call initSelColsFileReadCursor
+    return
+
+initSelColsFileReadCursor:
+    selColsFileRc = linein(selColsFile, 1, 0)
+    call checkRc 'initSelColsFileReadCursor' ,
+            selColsFileRc ''
+    return
+
+openReadSelColsFileTSO:
+    if (sysdsn(selColsFile) = 'OK')
+    then do
+        call allocateSelColsFile
+        openReadSelColsFileStatus = 'ok'
+    end
+    else do
+        call allocateNewSelColsFile
+        openReadSelColsFileStatus = 'ko'
+    end
+    return
+
+allocateSelColsFile:
+    call closeSelColsFile
+    address tso
+        'allocate ddname(selClsDD) dataset('selColsFile') shr'
+    address
+    call checkRc 'allocateSelColsFile' ,
+            rc 0
+    return
+
+allocateNewSelColsFile:
+    call closeSelColsFile
+    address tso
+        'allocate ddname(selClsDD) dataset('selColsFile') new' ,
+                'space(50 1) tracks release' ,
+                'lrecl(80) block(1600) recfm(f b) dsorg(ps)'
+    address
+    call checkRc 'allocateNewSelColsFile' ,
+            rc 0
+    return
+
+setSelColsRecsCounter:
+    selColsRecsCounter = 0
+    if (openReadSelColsFileStatus = 'ok')
+    then do
+        select
+        when (os = 'WIN64') then call setSelColsRecsCounterWIN
+        when (os = 'TSO')   then call setSelColsRecsCounterTSO
+        end
+    end
+    return
+
+setSelColsRecsCounterWIN:
+    selColsRecsCounter = lines(selColsFile, 'C')
+    return
+
+setSelColsRecsCounterTSO:
+    selColsStem. = ''
+    address tso
+        'execio * diskr selClsDD (stem selColsStem.'
+        'execio 0 diskr selClsDD (finis) '
+    address
+    call checkRc 'setSelColsRecsCounterTSO' ,
+            rc 0
+    selColsRecsCounter = selColsStem.0
+    selColsStem. = ''
+    return
+
+openWriteSelColsFile:
+    select
+    when (os = 'WIN64') then call openWriteSelColsFileWIN
+    when (os = 'TSO')   then call openWriteSelColsFileTSO
+    end
+    return
+
+openWriteSelColsFileWIN:
+    selColsFileRc = stream(selColsFile, 'C', 'OPEN WRITE')
+    call checkRc 'openWriteSelColsFileWIN' ,
+            selColsFileRc 'READY:'
+    call initSelColsFileWriteCursor
+    return
+
+initSelColsFileWriteCursor:
+    selColsFileRc = lineout(selColsFile, , 1)
+    call checkRc 'initSelColsFileWriteCursor' ,
+            selColsFileRc 0
+    return
+
+openWriteSelColsFileTSO:
+    call allocateSelColsFile
+    return
+
+readSelColsRecord:
+    select
+    when (os = 'WIN64') then call readSelColsRecordWIN
+    when (os = 'TSO')   then call readSelColsRecordTSO
+    end
+    return
+
+readSelColsRecordWIN:
+    selColsRecord = linein(selColsFile)
+    return
+
+readSelColsRecordTSO:
+    selColsFileStem. = ''
+    address tso
+        'execio 1 diskr selClsDD (stem selColsFileStem.'
+    address
+    call checkRc 'readSelColsRecordTSO' ,
+            rc 0
+    selColsRecord = selColsFileStem.1
+    return
+
+writeSelColsRecord:
+    select
+    when (os = 'WIN64') then call writeSelColsRecordWIN
+    when (os = 'TSO')   then call writeSelColsRecordTSO
+    end
+    return
+
+writeSelColsRecordWIN:
+    selColsFileRc = lineout(selColsFile, selColsRecord)
+    call checkRc 'writeSelColsRecordWIN' ,
+            selColsFileRc 0
+    return
+
+writeSelColsRecordTSO:
+    selColsFileStem. = ''
+    selColsFileStem.1 = selColsRecord
+    selColsFileStem.0 = 1
+    address tso
+        'execio 1 diskw selClsDD (stem selColsFileStem.'
+    address
+    call checkRc 'writeSelColsRecordTSO' ,
+            rc 0
+    return
+
+startSelColsFile:
+    call closeSelColsFile
+    select
+    when (os = 'WIN64') then call startSelColsFileWIN
+    when (os = 'TSO')   then call startSelColsFileTSO
+    end
+    return
+
+startSelColsFileWIN:
+    address system
+        'start "" "'selColsFile'"'
+    address
+    call checkRc 'startSelColsFileWIN' ,
+            rc 0
+    return
+
+startSelColsFileTSO:
+    address ispexec
+        'edit dataset ('selColsFile')'
+    address
+    call checkRc 'startSelColsFileTSO' ,
+            rc 0
+    return
+
+closeSelColsFile:
+    select
+    when (os = 'WIN64') then call closeSelColsFileWIN
+    when (os = 'TSO')   then call closeSelColsFileTSO
+    end
+    return
+
+closeSelColsFileWIN:
+    selColsFileRc = stream(selColsFile, 'C', 'CLOSE')
+    return
+
+closeSelColsFileTSO:
+    msgStatus = msg(off)
+    address tso
+        'execio 0 diskr selClsDD (finis) '
+        'free ddname(selClsDD)'
+    address
+    msgStatus = msg(on)
+    call checkRc 'closeSelColsFileTSO' ,
+            rc 0
+    return
 
 
 
 
 
+/* outCopyFile */
+
+openWriteOutCopyFile:
+    select
+    when (os = 'WIN64') then call openWriteOutCopyFileWIN
+    when (os = 'TSO')   then call openWriteOutCopyFileTSO
+    end
+    return
+
+openWriteOutCopyFileWIN:
+    outCopyFileRc = stream(outCopyFile, 'C', 'OPEN WRITE')
+    call checkRc 'openWriteOutCopyFileWIN' ,
+            outCopyFileRc 'READY:'
+    call initOutCopyFileWriteCursor
+    return
+
+initOutCopyFileWriteCursor:
+    outCopyFileRc = lineout(outCopyFile, , 1)
+    call checkRc 'initOutCopyFileWriteCursor' ,
+            outCopyFileRc 0
+    return
+
+openWriteOutCopyFileTSO:
+    if (sysdsn(outCopyFile) = 'OK')
+    then do
+        call allocateOutCopyFile
+    end
+    else do
+        call allocateNewOutCopyFile
+    end
+    return
+
+allocateOutCopyFile:
+    call closeOutCopyFile
+    address tso
+        'allocate ddname(outCpyDD) dataset('outCopyFile') shr'
+    address
+    call checkRc 'allocateOutCopyFile' ,
+            rc 0
+    return
+
+allocateNewOutCopyFile:
+    call closeOutCopyFile
+    address tso
+        'allocate ddname(outCpyDD) dataset('outCopyFile') new' ,
+                'space(50 1) tracks release' ,
+                'lrecl(400) block(1600) recfm(f b) dsorg(ps)'
+    address
+    call checkRc 'allocateNewOutCopyFile' ,
+            rc 0
+    return
+
+writeOutCopyRecord:
+    select
+    when (os = 'WIN64') then call writeOutCopyRecordWIN
+    when (os = 'TSO')   then call writeOutCopyRecordTSO
+    end
+    return
+
+writeOutCopyRecordWIN:
+    outCopyFileRc = lineout(outCopyFile, outCopyRecord)
+    call checkRc 'writeOutCopyRecordWIN' ,
+            outCopyFileRc 0
+    return
+
+writeOutCopyRecordTSO:
+    outCopyFileStem. = ''
+    outCopyFileStem.1 = outCopyRecord
+    outCopyFileStem.0 = 1
+    address tso
+        'execio 1 diskw outCpyDD (stem outCopyFileStem.'
+    address
+    call checkRc 'writeOutCopyRecordTSO' ,
+            rc 0
+    return
+
+closeOutCopyFile:
+    select
+    when (os = 'WIN64') then call closeOutCopyFileWIN
+    when (os = 'TSO')   then call closeOutCopyFileTSO
+    end
+    return
+
+closeOutCopyFileWIN:
+    outCopyFileRc = stream(outCopyFile, 'C', 'CLOSE')
+    return
+
+closeOutCopyFileTSO:
+    msgStatus = msg(off)
+    address tso
+        'execio 0 diskw outCpyDD (finis'
+        'free ddname(outCpyDD)'
+    address
+    msgStatus = msg(on)
+    call checkRc 'closeOutCopyFileTSO' ,
+            rc 0
+    return
+
+startOutCopyFile:
+    call closeOutCopyFile
+    select
+    when (os = 'WIN64') then call startOutCopyFileWIN
+    when (os = 'TSO')   then call startOutCopyFileTSO
+    end
+    return
+
+startOutCopyFileWIN:
+    address system
+        'start "" "'outCopyFile'"'
+    address
+    call checkRc 'startOutCopyFileWIN' ,
+            rc 0
+    return
+
+startOutCopyFileTSO:
+    address ispexec
+        'edit dataset ('outCopyFile')'
+    address
+    call checkRc 'startOutCopyFileTSO' ,
+            rc 0
+    return
+
+
+
+
+
+/* outDataFile */
+
+openWriteOutDataFile:
+    select
+    when (os = 'WIN64') then call openWriteOutDataFileWIN
+    when (os = 'TSO')   then call openWriteOutDataFileTSO
+    end
+    return
+
+openWriteOutDataFileWIN:
+    outDataFileRc = stream(outDataFile, 'C', 'OPEN WRITE')
+    call checkRc 'openWriteOutDataFileWIN' ,
+            outDataFileRc 'READY:'
+    call initOutDataFileWriteCursor
+    return
+
+initOutDataFileWriteCursor:
+    outDataFileRc = lineout(outDataFile, , 1)
+    call checkRc 'initOutDataFileWriteCursor' ,
+            outDataFileRc 0
+    return
+
+openWriteOutDataFileTSO:
+    if (sysdsn(outDataFile) = 'OK')
+    then do
+        call allocateOutDataFile
+    end
+    else do
+        call allocateNewOutDataFile
+    end
+    return
+
+allocateOutDataFile:
+    call closeOutDataFile
+    address tso
+        'allocate ddname(outDtaDD) dataset('outDataFile') shr'
+    address
+    call checkRc 'allocateOutDataFile' ,
+            rc 0
+    return
+
+allocateNewOutDataFile:
+    call closeOutDataFile
+    address tso
+        'allocate ddname(outDtaDD) dataset('outDataFile') new' ,
+                'space(50 1) tracks release' ,
+                'lrecl(400) block(1600) recfm(f b) dsorg(ps)'
+    address
+    call checkRc 'allocateNewOutDataFile' ,
+            rc 0
+    return
+
+writeOutputRecord:
+    select
+    when (os = 'WIN64') then call writeOutputRecordWIN
+    when (os = 'TSO')   then call writeOutputRecordTSO
+    end
+    return
+
+writeOutputRecordWIN:
+    outDataFileRc = lineout(outDataFile, outputRecord)
+    call checkRc 'writeOutputRecordWIN' ,
+            outDataFileRc 0
+    return
+
+writeOutputRecordTSO:
+    outputFileStem. = ''
+    outputFileStem.1 = outputRecord
+    outputFileStem.0 = 1
+    address tso
+        'execio 1 diskw outDtaDD (stem outputFileStem.'
+    address
+    call checkRc 'writeOutputRecordTSO' ,
+            rc 0
+    return
+
+closeOutDataFile:
+    select
+    when (os = 'WIN64') then call closeOutDataFileWIN
+    when (os = 'TSO')   then call closeOutDataFileTSO
+    end
+    return
+
+closeOutDataFileWIN:
+    outDataFileRc = stream(outDataFile, 'C', 'CLOSE')
+    return
+
+closeOutDataFileTSO:
+    msgStatus = msg(off)
+    address tso
+        'execio 0 diskw outDtaDD (finis'
+        'free ddname(outDtaDD)'
+    address
+    msgStatus = msg(on)
+    call checkRc 'closeOutDataFileTSO' ,
+            rc 0
+    return
+
+startOutDataFile:
+    call closeOutDataFile
+    select
+    when (os = 'WIN64') then call startOutDataFileWIN
+    when (os = 'TSO')   then call startOutDataFileTSO
+    end
+    return
+
+startOutDataFileWIN:
+    address system
+        'start "" "'outDataFile'"'
+    address
+    call checkRc 'startOutDataFileWIN' ,
+            rc 0
+    return
+
+startOutDataFileTSO:
+    address ispexec
+        'edit dataset ('outDataFile')'
+    address
+    call checkRc 'startOutDataFileTSO' ,
+            rc 0
+    return
+
+
+
+
+
+
