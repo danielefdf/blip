@@ -1,4 +1,4 @@
-# blip - DRAFT
+# blip
 A command-line tool for visualizing fixed format files from mainframe.
 
 On the mainframe it may happen to come across fixed format files, i.e. files in which data is written in this way:
@@ -10,9 +10,6 @@ On the mainframe it may happen to come across fixed format files, i.e. files in 
 Everything is simple until you find files in which the records are defined differently (see CoBOL REDEFINE) according to one or more reference fields: in this case it is not easy to read the file, especially if there are many redefinitions and many records.
 
 This tool allows you to interpret the data, given the reference CoBOL structure.
-
-### DRAFT(1): the tool is obviously meant to be used on mainframe, but the development took place mainly on windows. Mainframe usage needs to be tested.
-### DRAFT(2): in order for it to be used on mainframe, it is necessary to swap pipe and exclamation point in the source code :-/ I will provide a dedicated source
 
 ## use of the tool
 
