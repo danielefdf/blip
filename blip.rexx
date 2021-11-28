@@ -2,8 +2,8 @@
 
 /*
    TODO
- - lrecl fisso a 400
- - da gestire in formato ascii se/quando ci sarเ occasione
+ - lrecl 400
+ - da gestire in formato ascii se/quando ci sarà occasione
     doppia gestione segno per signed - parametro SIGNED_ZONED_FORMAT
     formattazione comp
     lettura dati con redefines su ascii
@@ -2478,22 +2478,19 @@ resetDataCursorWIN:
     return
 
 selectDataRecords:
-    if (os = 'WIN64' ,
-            & SIMULATE_TSO_FROM_WIN64 = TRUE)
-    then do
-        os = 'TSO'
-        dataFileRecsCounter = lines(DATA_FILE, 'C')
-    end
     select
+    when (os = SIMULATE_TSO_FROM_WIN64 = TRUE)
+                        then call selectDataRecordsTSO
     when (os = 'WIN64') then call selectDataRecordsWIN
     when (os = 'TSO')   then call selectDataRecordsTSO
     end
-    if (os = 'TSO' ,
-            & SIMULATE_TSO_FROM_WIN64 = TRUE)
-    then do
-        os = 'WIN64'
-    end
     return
+
+/*
+ *
+ * selectDataRecordsWIN
+ *
+ */
 
 selectDataRecordsWIN:
     formatDataValues = FALSE
@@ -2501,6 +2498,7 @@ selectDataRecordsWIN:
     lastOccurredSCIndex = -1
     do while (chars(DATA_FILE) > 0 ,
             & outputRecordsCounter <= MAX_DATA_RECORDS - 1)
+        outputRecord = ' '
         call selectOutputRecordWIN
         if (DATA_DSORG = 'lseq')
         then do
@@ -2511,7 +2509,6 @@ selectDataRecordsWIN:
     return
 
 selectOutputRecordWIN:
-    outputRecord = ' '
     dataCheck = charin(DATA_FILE, dataCursor, 1)
     call resetDataCursor
     if (dataCheck <> EMPTY_DATA_RECORD)
@@ -2565,16 +2562,6 @@ checkAllSelRecsCondsWIN:
     call setAllSelRecsCondsSwitch
     return
 
-setAllSelRecsCondsSwitch:
-    allSelRecsCondsOccur = TRUE
-    do selRecsCondsIndex = 1 to selRecsCondsCounter
-        if (selRecsCondsOccs.selRecsCondsIndex = FALSE)
-        then do
-            allSelRecsCondsOccur = FALSE
-        end
-    end
-    return
-
 getAllFieldsValueWIN:
     /* treated as group */
     allFieldsValue = charin(DATA_FILE, dataCursor, MAX_ALPHA_LENGTH)
@@ -2585,6 +2572,7 @@ getAllFieldsValueWIN:
     end
     return
 
+/* serve solo per WIN */
 checkRedefCursor:
     if (fieldRedefdLabel <> '')
     then do
@@ -2616,6 +2604,292 @@ getAlphanumValueWIN:
         call formatAlphanumValue
     end
     return
+
+checkSelRecsConds:
+    selRecsFieldLabel = selRecsCondLabels.selRecsCondsIndex
+    select
+    when (selRecsFieldLabel = 'ALL FIELDS')
+    then do
+        selRecsOperator = selRecsCondOperators.selRecsCondsIndex
+        selRecsValue    = selRecsCondValues.selRecsCondsIndex
+        interpret 'condRc="'allFieldsValue'"' ,
+                || selRecsOperator'"'selRecsValue'"'
+        if (condRc = SYS_TRUE)
+        then do
+            selRecsCondsOccs.selRecsCondsIndex = TRUE
+        end
+    end
+    when (selRecsFieldLabel = fieldLabel)
+    then do
+        selRecsOperator = selRecsCondOperators.selRecsCondsIndex
+        selRecsValue    = selRecsCondValues.selRecsCondsIndex
+        interpret 'condRc="'dataValue'"' ,
+                || selRecsOperator'"'selRecsValue'"'
+        if (condRc = SYS_TRUE)
+        then do
+            selRecsCondsOccs.selRecsCondsIndex = TRUE
+        end
+    end
+    otherwise
+        nop
+    end
+    return
+
+checkSelColsConds:
+    do scCondsIndex = 1 to selColsCondsCounters.selColsIndex
+        selColsLabel    = selColsLabels.selColsIndex.scCondsIndex
+        selColsOperator = selColsOperators.selColsIndex.scCondsIndex
+        selColsValue    = selColsValues.selColsIndex.scCondsIndex
+        if (selColsLabel = fieldLabel)
+        then do
+            interpret 'selColsCondRc="'dataValue'"' ,
+                    || selColsOperator'"'selColsValue'"'
+            if (selColsCondRc = SYS_TRUE)
+            then do
+                occurredSCIndex = selColsIndex
+            end
+        end
+    end
+    return
+
+setOutTableHeader:
+    outputRecord = ''
+    call writeOutputRecord
+    do fieldLabelSubsIndex = 1 to fieldsMaxLabelSubs ,
+            + 1  /* +1 is a trick to insert an empty line */
+        call setOutTableHeaderRecord
+    end
+    return
+
+setOutTableHeaderRecord:
+    outputRecord = ' '
+    do fieldsIndex = 1 to fieldsCounter
+        call retrieveField fieldsIndex
+        if (fieldPicType <> 'group' ,
+                & selColsConds.occurredSCIndex.fieldLabel = '+')
+        then do
+            call showOutTableHeaderField
+        end
+    end
+    call writeOutputRecord
+    return
+
+showOutTableHeaderField:
+    select
+    when (fieldPicType = 'alphanum')
+    then do
+        column = left(fieldLabelSubs.fieldLabelSubsIndex, ,
+                fieldColumnLength)
+    end
+    when (fieldPicType = 'integer' ,
+            | fieldPicType = 'decimal')
+    then do
+        column = right(fieldLabelSubs.fieldLabelSubsIndex, ,
+                fieldColumnLength)
+    end
+    end
+    outputRecord = outputRecord || column' ; '
+    return
+
+setOutputRecordWIN:
+    outputRecord = ' '
+    do fieldsIndex = 1 to fieldsCounter ,
+            while (chars(DATA_FILE) > 0)
+        call retrieveField fieldsIndex
+        call checkRedefCursor
+        dataValue = ''
+        select
+        when (fieldPicType = 'group')    then nop
+        when (fieldPicType = 'alphanum') then call getAlphanumValueWIN
+        when (fieldPicType = 'integer' ,
+            | fieldPicType = 'decimal')  then call getNumericValueWIN
+        end
+        if (fieldPicType <> 'group' ,
+                & selColsConds.occurredSCIndex.fieldLabel = '+')
+        then do
+            call setOutTableDataField
+        end
+    end
+    return
+
+setOutTableDataField:
+    valueString = dataValue
+    select
+    when (fieldPicType = 'alphanum')
+    then do
+        column = left(valueString, fieldColumnLength)
+    end
+    when (fieldPicType = 'integer' ,
+            | fieldPicType = 'decimal')
+    then do
+        column = right(valueString, fieldColumnLength)
+    end
+    end
+    outputRecord = outputRecord || column' ; '
+    return
+
+/*
+ *
+ * selectDataRecordsTSO
+ *
+ */
+
+selectDataRecordsTSO:
+    formatDataValues = FALSE
+    outputRecordsCounter = 1
+    lastOccurredSCIndex = -1
+    dataRecsCursor = 0
+    do while (dataRecsCursor < dataFileRecsCounter ,
+            & outputRecordsCounter <= MAX_DATA_RECORDS - 1)
+        call readDataFileRecord
+        dataRecsCursor = dataRecsCursor + 1
+        outputRecord = ' '
+        call selectOutputRecordTSO
+        outputRecordsCounter = outputRecordsCounter + 1
+    end
+    return
+
+selectOutputRecordTSO:
+    call checkAllSelRecsCondsTSO
+    if (allSelRecsCondsOccur = TRUE)
+    then do
+        formatDataValues = TRUE
+        if (occurredSCIndex <> lastOccurredSCIndex)
+        then do
+            call setOutTableHeader
+            lastOccurredSCIndex = occurredSCIndex
+        end
+        call setOutputRecordTSO
+        call writeOutputRecord
+        formatDataValues = FALSE
+    end
+    return
+
+checkAllSelRecsCondsTSO:
+    selRecsCondsOccs. = FALSE
+    occurredSCIndex = 0
+    call getAllFieldsValueTSO
+    do fieldsIndex = 1 to fieldsCounter
+        call retrieveField fieldsIndex
+        dataValue = ''
+        select
+        when (fieldPicType = 'group')    then call getGroupValueTSO
+        when (fieldPicType = 'alphanum') then call getAlphanumValueTSO
+        when (fieldPicType = 'integer' ,
+            | fieldPicType = 'decimal')  then call getNumericValueTSO
+        end
+        do selRecsCondsIndex = 1 to selRecsCondsCounter
+            call checkSelRecsConds
+        end
+        do selColsIndex = 1 to selColsCounter
+            call checkSelColsConds
+        end
+    end
+    call setAllSelRecsCondsSwitch
+    return
+
+getAllFieldsValueTSO:
+    /* treated as group */
+    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
+            MAX_ALPHA_LENGTH)
+    return
+
+getGroupValueTSO:
+    /* treated as alphanum, limited by MAX_ALPHA_LENGTH */
+    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
+            MAX_ALPHA_LENGTH)
+    return
+
+getAlphanumValueTSO:
+    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
+            fieldEbcdicLength)
+    if (formatDataValues = TRUE)
+    then do
+        call formatAlphanumValue
+    end
+    return
+
+getNumericValueTSO:
+    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
+            fieldEbcdicLength)
+    select
+    when (fieldPicCompType = 'zoned')   then nop
+    when (fieldPicCompType = 'comp-3')  then call getComp3ValueTSO
+    when (fieldPicCompType = 'comp')    then call getCompValueTSO
+    end
+    if (formatDataValues = TRUE)
+    then do
+        select
+        when (fieldPicCompType = 'zoned')   then call formatZonedValue
+        when (fieldPicCompType = 'comp-3')  then call formatComp3Value
+        when (fieldPicCompType = 'comp')    then call formatCompValue
+        end
+    end
+    return
+
+getComp3ValueTSO:
+    dataValue = c2x(dataValue)
+    dataCursor = dataCursor + fieldEbcdicLength
+    return
+
+getCompValueTSO:
+    hexValue = c2x(dataValue)
+    binValue = x2b(hexValue)
+    if (left(binValue, 1) = '0')  /* positive */
+    then do
+        dataValue = x2d(hexValue)
+        dataValue = dataValue'C'  /* set normal sign to format */
+    end
+    else do
+        posiValue = bitxor(dataValue, 'FFFFFFFFFFFFFFFF'x)
+        hexValue  = b2x(posiValue)
+        dataValue = x2d(hexValue)
+        dataValue = dataValue - 1
+        dataValue = dataValue'D'  /* set normal sign to format */
+    end
+    dataCursor = dataCursor + fieldEbcdicLength
+    return
+
+setOutputRecordTSO:
+    outputRecord = ' '
+    do fieldsIndex = 1 to fieldsCounter
+        call retrieveField fieldsIndex
+        dataValue = ''
+        select
+        when (fieldPicType = 'group')    then nop
+        when (fieldPicType = 'alphanum') then call getAlphanumValueTSO
+        when (fieldPicType = 'integer' ,
+            | fieldPicType = 'decimal')  then call getNumericValueTSO
+        end
+        if (fieldPicType <> 'group' ,
+                & selColsConds.occurredSCIndex.fieldLabel = '+')
+        then do
+            call setOutTableDataField
+        end
+    end
+    return
+
+/*
+ *
+ * funzioni comuni
+ *
+ */
+
+setAllSelRecsCondsSwitch:
+    allSelRecsCondsOccur = TRUE
+    do selRecsCondsIndex = 1 to selRecsCondsCounter
+        if (selRecsCondsOccs.selRecsCondsIndex = FALSE)
+        then do
+            allSelRecsCondsOccur = FALSE
+        end
+    end
+    return
+
+/*
+ *
+ * format*
+ *
+ */
 
 formatAlphanumValue:
     if (fieldTabColOverSw = TRUE)
@@ -2862,263 +3136,9 @@ formatCompCommaAscii:
     /* TODO verificare posizione virgola */
     return
 
-checkSelRecsConds:
-    selRecsFieldLabel = selRecsCondLabels.selRecsCondsIndex
-    select
-    when (selRecsFieldLabel = 'ALL FIELDS')
-    then do
-        selRecsOperator = selRecsCondOperators.selRecsCondsIndex
-        selRecsValue    = selRecsCondValues.selRecsCondsIndex
-        interpret 'condRc="'allFieldsValue'"' ,
-                || selRecsOperator'"'selRecsValue'"'
-        if (condRc = SYS_TRUE)
-        then do
-            selRecsCondsOccs.selRecsCondsIndex = TRUE
-        end
-    end
-    when (selRecsFieldLabel = fieldLabel)
-    then do
-        selRecsOperator = selRecsCondOperators.selRecsCondsIndex
-        selRecsValue    = selRecsCondValues.selRecsCondsIndex
-        interpret 'condRc="'dataValue'"' ,
-                || selRecsOperator'"'selRecsValue'"'
-        if (condRc = SYS_TRUE)
-        then do
-            selRecsCondsOccs.selRecsCondsIndex = TRUE
-        end
-    end
-    otherwise
-        nop
-    end
-    return
 
-checkSelColsConds:
-    do scCondsIndex = 1 to selColsCondsCounters.selColsIndex
-        selColsLabel    = selColsLabels.selColsIndex.scCondsIndex
-        selColsOperator = selColsOperators.selColsIndex.scCondsIndex
-        selColsValue    = selColsValues.selColsIndex.scCondsIndex
-        if (selColsLabel = fieldLabel)
-        then do
-            interpret 'selColsCondRc="'dataValue'"' ,
-                    || selColsOperator'"'selColsValue'"'
-            if (selColsCondRc = SYS_TRUE)
-            then do
-                occurredSCIndex = selColsIndex
-            end
-        end
-    end
-    return
 
-setOutTableHeader:
-    outputRecord = ''
-    call writeOutputRecord
-    do fieldLabelSubsIndex = 1 to fieldsMaxLabelSubs ,
-            + 1  /* +1 is a trick to insert an empty line */
-        call setOutTableHeaderRecord
-    end
-    return
 
-setOutTableHeaderRecord:
-    outputRecord = ' '
-    do fieldsIndex = 1 to fieldsCounter
-        call retrieveField fieldsIndex
-        if (fieldPicType <> 'group' ,
-                & selColsConds.occurredSCIndex.fieldLabel = '+')
-        then do
-            call showOutTableHeaderField
-        end
-    end
-    call writeOutputRecord
-    return
-
-showOutTableHeaderField:
-    select
-    when (fieldPicType = 'alphanum')
-    then do
-        column = left(fieldLabelSubs.fieldLabelSubsIndex, ,
-                fieldColumnLength)
-    end
-    when (fieldPicType = 'integer' ,
-            | fieldPicType = 'decimal')
-    then do
-        column = right(fieldLabelSubs.fieldLabelSubsIndex, ,
-                fieldColumnLength)
-    end
-    end
-    outputRecord = outputRecord || column' ; '
-    return
-
-setOutputRecordWIN:
-    outputRecord = ' '
-    do fieldsIndex = 1 to fieldsCounter ,
-            while (chars(DATA_FILE) > 0)
-        call retrieveField fieldsIndex
-        call checkRedefCursor
-        dataValue = ''
-        select
-        when (fieldPicType = 'group')    then nop
-        when (fieldPicType = 'alphanum') then call getAlphanumValueWIN
-        when (fieldPicType = 'integer' ,
-            | fieldPicType = 'decimal')  then call getNumericValueWIN
-        end
-        if (fieldPicType <> 'group' ,
-                & selColsConds.occurredSCIndex.fieldLabel = '+')
-        then do
-            call setOutTableDataField
-        end
-    end
-    return
-
-setOutTableDataField:
-    valueString = dataValue
-    select
-    when (fieldPicType = 'alphanum')
-    then do
-        column = left(valueString, fieldColumnLength)
-    end
-    when (fieldPicType = 'integer' ,
-            | fieldPicType = 'decimal')
-    then do
-        column = right(valueString, fieldColumnLength)
-    end
-    end
-    outputRecord = outputRecord || column' ; '
-    return
-
-selectDataRecordsTSO:
-    formatDataValues = FALSE
-    outputRecordsCounter = 1
-    lastOccurredSCIndex = -1
-    dataRecsCursor = 0
-    do while (dataRecsCursor < dataFileRecsCounter ,
-            & outputRecordsCounter <= MAX_DATA_RECORDS - 1)
-        call readDataFileRecord
-        dataRecsCursor = dataRecsCursor + 1
-        outputRecord = ' '
-        call selectOutputRecordTSO
-        outputRecordsCounter = outputRecordsCounter + 1
-    end
-    return
-
-selectOutputRecordTSO:
-    call checkAllSelRecsCondsTSO
-    if (allSelRecsCondsOccur = TRUE)
-    then do
-        formatDataValues = TRUE
-        if (occurredSCIndex <> lastOccurredSCIndex)
-        then do
-            call setOutTableHeader
-            lastOccurredSCIndex = occurredSCIndex
-        end
-        call setOutputRecordTSO
-        call writeOutputRecord
-        formatDataValues = FALSE
-    end
-    return
-
-checkAllSelRecsCondsTSO:
-    selRecsCondsOccs. = FALSE
-    occurredSCIndex = 0
-    call getAllFieldsValueTSO
-    do fieldsIndex = 1 to fieldsCounter
-        call retrieveField fieldsIndex
-        dataValue = ''
-        select
-        when (fieldPicType = 'group')    then call getGroupValueTSO
-        when (fieldPicType = 'alphanum') then call getAlphanumValueTSO
-        when (fieldPicType = 'integer' ,
-            | fieldPicType = 'decimal')  then call getNumericValueTSO
-        end
-        do selRecsCondsIndex = 1 to selRecsCondsCounter
-            call checkSelRecsConds
-        end
-        do selColsIndex = 1 to selColsCounter
-            call checkSelColsConds
-        end
-    end
-    call setAllSelRecsCondsSwitch
-    return
-
-getAllFieldsValueTSO:
-    /* treated as group */
-    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
-            MAX_ALPHA_LENGTH)
-    return
-
-getGroupValueTSO:
-    /* treated as alphanum, limited by MAX_ALPHA_LENGTH */
-    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
-            MAX_ALPHA_LENGTH)
-    return
-
-getAlphanumValueTSO:
-    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
-            fieldEbcdicLength)
-    if (formatDataValues = TRUE)
-    then do
-        call formatAlphanumValue
-    end
-    return
-
-getNumericValueTSO:
-    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
-            fieldEbcdicLength)
-    select
-    when (fieldPicCompType = 'zoned')   then nop
-    when (fieldPicCompType = 'comp-3')  then call getComp3ValueTSO
-    when (fieldPicCompType = 'comp')    then call getCompValueTSO
-    end
-    if (formatDataValues = TRUE)
-    then do
-        select
-        when (fieldPicCompType = 'zoned')   then call formatZonedValue
-        when (fieldPicCompType = 'comp-3')  then call formatComp3Value
-        when (fieldPicCompType = 'comp')    then call formatCompValue
-        end
-    end
-    return
-
-getComp3ValueTSO:
-    dataValue = c2x(dataValue)
-    dataCursor = dataCursor + fieldEbcdicLength
-    return
-
-getCompValueTSO:
-    hexValue = c2x(dataValue)
-    binValue = x2b(hexValue)
-    if (left(binValue, 1) = '0')  /* positive */
-    then do
-        dataValue = x2d(hexValue)
-        dataValue = dataValue'C'  /* set normal sign to format */
-    end
-    else do
-        posiValue = bitxor(dataValue, 'FFFFFFFFFFFFFFFF'x)
-        hexValue  = b2x(posiValue)
-        dataValue = x2d(hexValue)
-        dataValue = dataValue - 1
-        dataValue = dataValue'D'  /* set normal sign to format */
-    end
-    dataCursor = dataCursor + fieldEbcdicLength
-    return
-
-setOutputRecordTSO:
-    outputRecord = ' '
-    do fieldsIndex = 1 to fieldsCounter
-        call retrieveField fieldsIndex
-        dataValue = ''
-        select
-        when (fieldPicType = 'group')    then nop
-        when (fieldPicType = 'alphanum') then call getAlphanumValueTSO
-        when (fieldPicType = 'integer' ,
-            | fieldPicType = 'decimal')  then call getNumericValueTSO
-        end
-        if (fieldPicType <> 'group' ,
-                & selColsConds.occurredSCIndex.fieldLabel = '+')
-        then do
-            call setOutTableDataField
-        end
-    end
-    return
 
 showSelRecsHelp:
     select
@@ -4482,5 +4502,3 @@ startOutDataFileTSO:
 
 
 
-
-
