@@ -1,13 +1,12 @@
 /* Rexx */
 
 /*
-   TODO
- - lrecl 400
- - da gestire in formato ascii se/quando ci sarà occasione
-    doppia gestione segno per signed - parametro SIGNED_ZONED_FORMAT
-    formattazione comp
-    lettura dati con redefines su ascii
-    regole
+   TODO - find TODO
+ - doppia gestione segno per signed - parametro SIGNED_ZONED_FORMAT
+ - fare copy definitiva e provare
+     - formattazione comp
+     - lrecl del rec ridefinito < lrecl originale
+     - lrecl del rec ridefinito > lrecl originale
 */
 
 /* debug tools
@@ -18,7 +17,6 @@
     signal on error
     signal on syntax
     signal on halt
-    SIMULATE_TSO_FROM_WIN64 = TRUE
 */
 
 main:
@@ -103,6 +101,9 @@ setConstants:
     /* loop safety counters */
     MAX_MAIN_ITER_COUNTER = 10
     MAX_PRO_FILE_ITER_COUNTER = 10
+    /* output record formatting */
+    OUT_REC_INITIAL_SPACE = ' '
+    EMPTY_OUT_REC = ''
     return
 
 initSelectFeatures:
@@ -169,8 +170,10 @@ checkProfile:
 
 initProfile:
     DATA_FILE         = '?'
+    MAX_LRECL         = 500
     DATA_ENCODING     = '?'
     DATA_DSORG        = '?'
+    EOL_TYPE          = '?'
     COPY_FILE         = '?'
     MAX_DATA_RECORDS  = 99
     MAX_ALPHA_LENGTH  = 99
@@ -184,13 +187,21 @@ initProfile:
     call writeProRecord
     proRecord = '          'DATA_FILE
     call writeProRecord
-    proRecord = '*     encoding: ebcdic/ascii'
+    proRecord = '*     max LRECL               -- TSO OS only'
+    call writeProRecord
+    proRecord = '          'MAX_LRECL
+    call writeProRecord
+    proRecord = '*     encoding: ebcdic/ascii  -- WIN OS only'
     call writeProRecord
     proRecord = '          'DATA_ENCODING
     call writeProRecord
-    proRecord = '*     organisation: lseq/seq'
+    proRecord = '*     organisation: lseq/seq  -- ascii enc. only'
     call writeProRecord
     proRecord = '          'DATA_DSORG
+    call writeProRecord
+    proRecord = '*     eol: CR/LF/CRLF         -- lseq org. only'
+    call writeProRecord
+    proRecord = '          'EOL_TYPE
     call writeProRecord
     proRecord = '*'
     call writeProRecord
@@ -236,16 +247,20 @@ getProfileOptions:
             when (proFileParmCursor = 1)
             then DATA_FILE          = strip(proRecord)
             when (proFileParmCursor = 2)
-            then DATA_ENCODING      = strip(proRecord)
+            then MAX_LRECL          = strip(proRecord)
             when (proFileParmCursor = 3)
-            then DATA_DSORG         = strip(proRecord)
+            then DATA_ENCODING      = strip(proRecord)
             when (proFileParmCursor = 4)
-            then COPY_FILE          = strip(proRecord)
+            then DATA_DSORG         = strip(proRecord)
             when (proFileParmCursor = 5)
-            then MAX_DATA_RECORDS   = strip(proRecord)
+            then EOL_TYPE           = strip(proRecord)
             when (proFileParmCursor = 6)
-            then MAX_ALPHA_LENGTH   = strip(proRecord)
+            then COPY_FILE          = strip(proRecord)
             when (proFileParmCursor = 7)
+            then MAX_DATA_RECORDS   = strip(proRecord)
+            when (proFileParmCursor = 8)
+            then MAX_ALPHA_LENGTH   = strip(proRecord)
+            when (proFileParmCursor = 9)
             then RESTART_LOG_LEVEL  = strip(proRecord)
             end
         end
@@ -298,8 +313,8 @@ setFiles:
     return
 
 setFilesWIN:
-    selRecsFile = selRecsDirectory'\'COPY_NAME'.txt'
-    selColsFile = selColsDirectory'\'COPY_NAME'.txt'
+    selRecsFile = selRecsDirectory'\'COPY_NAME
+    selColsFile = selColsDirectory'\'COPY_NAME
     outCopyFile = BLIP_DIRECTORY'\outCopyFile.txt'
     outDataFile = BLIP_DIRECTORY'\outDataFile.txt'
     return
@@ -312,18 +327,11 @@ setFilesTSO:
     return
 
 viewCopy:
-    call setNormsList
-    call setMonosList
-    call setFieldsList
-    call setOccursFields
-    call setEbcdicFromToCols
-    /*dg
-    call displayFieldsList
-    */
+    call getFieldData
     call showCopy
     return
 
-viewData:
+getFieldData:
     call setNormsList
     call setMonosList
     call setFieldsList
@@ -332,6 +340,10 @@ viewData:
     /*dg
     call displayFieldsList
     */
+    return
+
+viewData:
+    call getFieldData
     call showData
     return
 
@@ -362,6 +374,12 @@ setProFileStatus:
         say 'blip> checkProfile> data file: missing'
         proFileStatus = 'ko'
     end
+    when (datatype(MAX_LRECL) <> 'NUM')
+    then do
+        say
+        say 'blip> checkProfile> max LRECL: wrong value'
+        proFileStatus = 'ko'
+    end
     when (DATA_ENCODING <> 'ascii' & DATA_ENCODING <> 'ebcdic')
     then do
         say
@@ -373,6 +391,12 @@ setProFileStatus:
     then do
         say
         say 'blip> checkProfile> data file organization: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (EOL_TYPE <> 'CR' & EOL_TYPE <> 'LF' & EOL_TYPE <> 'CRLF')
+    then do
+        say
+        say 'blip> checkProfile> eol: wrong value'
         proFileStatus = 'ko'
     end
     when (COPY_FILE = '?' | COPY_FILE = '')
@@ -520,7 +544,6 @@ addMonoRec:
 setFieldsList:
     call initFields
     fieldsCounter = 0
-    fillerLabelsCounter = 0
     fieldsMaxLabelSubs = 0
     previousLogLevel = 0
     log2DisplayLevels. = ''
@@ -721,11 +744,6 @@ getFieldDisplayLevel:
 getFieldLabel:
     call getNextBodyWord
     fieldLabel = bodyWord
-    if (fieldLabel = 'filler')
-    then do
-        fillerLabelsCounter = fillerLabelsCounter + 1
-        fieldLabel = fieldLabel'-('fillerLabelsCounter')'
-    end
     return
 
 getFieldLabelLen:
@@ -2452,6 +2470,12 @@ checkSelColsAllFieldsParms:
     end
     return
 
+/*
+ *
+ * showData1
+ *
+ */
+
 showData1:
     call openWriteOutDataFile
     call resetDataFile
@@ -2463,95 +2487,76 @@ resetDataFile:
     call closeDataFile
     call openReadDataFile
     dataCursor = 1
-    call resetDataCursor
+    call setDataFileAtCursor
     return
 
-resetDataCursor:
-    select
-    when (os = 'WIN64') then call resetDataCursorWIN
-    when (os = 'TSO')   then nop
+setDataFileAtCursor:
+    if (DATA_DSORG = 'seq')
+    then do
+        charinReset = charin(DATA_FILE, dataCursor, 0)
     end
-    return
-
-resetDataCursorWIN:
-    charinReset = charin(DATA_FILE, dataCursor, 0)
     return
 
 selectDataRecords:
-    select
-    when (os = SIMULATE_TSO_FROM_WIN64 = TRUE)
-                        then call selectDataRecordsTSO
-    when (os = 'WIN64') then call selectDataRecordsWIN
-    when (os = 'TSO')   then call selectDataRecordsTSO
-    end
-    return
-
-/*
- *
- * selectDataRecordsWIN
- *
- */
-
-selectDataRecordsWIN:
-    formatDataValues = FALSE
-    outputRecordsCounter = 1
     lastOccurredSCIndex = -1
-    do while (chars(DATA_FILE) > 0 ,
-            & outputRecordsCounter <= MAX_DATA_RECORDS - 1)
-        outputRecord = ' '
-        call selectOutputRecordWIN
+    dataFileRecsCursor = 1
+    do while (dataFileRecsCursor <= dataFileRecsCounter ,
+            & dataFileRecsCursor <= MAX_DATA_RECORDS ,
+            & checkDataExists() = TRUE)
+        dataFileRecsCursor = dataFileRecsCursor + 1
         if (DATA_DSORG = 'lseq')
         then do
-            dataCursor = dataCursor + 1
+            call readDataFileRecord
         end
-        outputRecordsCounter = outputRecordsCounter + 1
+        call selectOutputRecord
+        if (DATA_DSORG = 'seq')
+        then do
+            select
+            when (EOL_TYPE = 'CR')   then eolLength = 1
+            when (EOL_TYPE = 'LF')   then eolLength = 1
+            when (EOL_TYPE = 'CRLF') then eolLength = 2
+            end
+            dataCursor = dataCursor + eolLength
+        end
     end
     return
 
-selectOutputRecordWIN:
-    dataCheck = charin(DATA_FILE, dataCursor, 1)
-    call resetDataCursor
-    if (dataCheck <> EMPTY_DATA_RECORD)
-    then do
-        call selectOutputRecordWIN1
-    end
-    return
+checkDataExists:
+    if (DATA_DSORG = 'seq')
+    then return checkDataExistsCUR()
+    return TRUE
 
-selectOutputRecordWIN1:
-    startDataCursor = dataCursor
-    call checkAllSelRecsCondsWIN
+checkDataExistsCUR:
+    if (chars(DATA_FILE) > 0)
+    then return TRUE
+    return FALSE
+
+selectOutputRecord:
+    formatDataValues = FALSE
+    call checkAllSelRecsConds
     if (allSelRecsCondsOccur = TRUE)
     then do
-        dataCursor = startDataCursor
-        call resetDataCursor
         formatDataValues = TRUE
         if (occurredSCIndex <> lastOccurredSCIndex)
         then do
             call setOutTableHeader
             lastOccurredSCIndex = occurredSCIndex
         end
-        call setOutputRecordWIN
+        call setOutputRecord
         call writeOutputRecord
-        formatDataValues = FALSE
     end
     return
 
-checkAllSelRecsCondsWIN:
+checkAllSelRecsConds:
+    call saveStartDataCursor
     fieldsDataCursors. = ''
     selRecsCondsOccs. = FALSE
     occurredSCIndex = 0
-    call getAllFieldsValueWIN
-    do fieldsIndex = 1 to fieldsCounter ,
-            while (chars(DATA_FILE) > 0)
+    call getAllFieldsValue
+    do fieldsIndex = 1 to fieldsCounter
         call retrieveField fieldsIndex
         call checkRedefCursor
-        dataValue = ''
-        select
-        when (fieldPicType = 'group')    then call getGroupValueWIN
-        when (fieldPicType = 'alphanum') then call getAlphanumValueWIN
-        when (fieldPicType = 'integer' ,
-            | fieldPicType = 'decimal')  then call getNumericValueWIN
-        end
+        call getValue
         do selRecsCondsIndex = 1 to selRecsCondsCounter
             call checkSelRecsConds
         end
@@ -2559,50 +2564,21 @@ checkAllSelRecsCondsWIN:
             call checkSelColsConds
         end
     end
+    call resetStartDataCursor
     call setAllSelRecsCondsSwitch
     return
 
-getAllFieldsValueWIN:
-    /* treated as group */
-    allFieldsValue = charin(DATA_FILE, dataCursor, MAX_ALPHA_LENGTH)
-    call resetDataCursor
-    if (DATA_ENCODING = 'ebcdic')
-    then do
-        allFieldsValue = ebcdic2AsciiAlpha(allFieldsValue)
-    end
+saveStartDataCursor:
+    startDataCursor = dataCursor
     return
 
-/* serve solo per WIN */
 checkRedefCursor:
     if (fieldRedefdLabel <> '')
     then do
         dataCursor = fieldsDataCursors.fieldLogLevel.fieldRedefdLabel
-        call resetDataCursor
+        call setDataFileAtCursor
     end
     fieldsDataCursors.fieldLogLevel.fieldLabel = dataCursor
-    return
-
-getGroupValueWIN:
-    /* treated as alphanum, limited by MAX_ALPHA_LENGTH */
-    dataValue = charin(DATA_FILE, dataCursor, MAX_ALPHA_LENGTH)
-    call resetDataCursor
-    if (DATA_ENCODING = 'ebcdic')
-    then do
-        dataValue = ebcdic2AsciiAlpha(dataValue)
-    end
-    return
-
-getAlphanumValueWIN:
-    dataValue = charin(DATA_FILE, dataCursor, fieldPicIntsNum)
-    if (DATA_ENCODING = 'ebcdic')
-    then do
-        dataValue = ebcdic2AsciiAlpha(dataValue)
-    end
-    dataCursor = dataCursor + fieldPicIntsNum
-    if (formatDataValues = TRUE)
-    then do
-        call formatAlphanumValue
-    end
     return
 
 checkSelRecsConds:
@@ -2652,17 +2628,34 @@ checkSelColsConds:
     end
     return
 
-setOutTableHeader:
-    outputRecord = ''
-    call writeOutputRecord
-    do fieldLabelSubsIndex = 1 to fieldsMaxLabelSubs ,
-            + 1  /* +1 is a trick to insert an empty line */
-        call setOutTableHeaderRecord
+resetStartDataCursor:
+    dataCursor = startDataCursor
+    call setDataFileAtCursor
+    return
+
+setAllSelRecsCondsSwitch:
+    allSelRecsCondsOccur = TRUE
+    do selRecsCondsIndex = 1 to selRecsCondsCounter
+        if (selRecsCondsOccs.selRecsCondsIndex = FALSE)
+        then do
+            allSelRecsCondsOccur = FALSE
+        end
     end
     return
 
+setOutTableHeader:
+    outputRecord = EMPTY_OUT_REC
+    call writeOutputRecord
+    do fieldLabelSubsIndex = 1 to fieldsMaxLabelSubs
+        call setOutTableHeaderRecord
+        call writeOutputRecord
+    end
+    outputRecord = EMPTY_OUT_REC
+    call writeOutputRecord
+    return
+
 setOutTableHeaderRecord:
-    outputRecord = ' '
+    outputRecord = OUT_REC_INITIAL_SPACE
     do fieldsIndex = 1 to fieldsCounter
         call retrieveField fieldsIndex
         if (fieldPicType <> 'group' ,
@@ -2671,7 +2664,6 @@ setOutTableHeaderRecord:
             call showOutTableHeaderField
         end
     end
-    call writeOutputRecord
     return
 
 showOutTableHeaderField:
@@ -2691,19 +2683,12 @@ showOutTableHeaderField:
     outputRecord = outputRecord || column' ; '
     return
 
-setOutputRecordWIN:
-    outputRecord = ' '
-    do fieldsIndex = 1 to fieldsCounter ,
-            while (chars(DATA_FILE) > 0)
+setOutputRecord:
+    outputRecord = OUT_REC_INITIAL_SPACE
+    do fieldsIndex = 1 to fieldsCounter
         call retrieveField fieldsIndex
         call checkRedefCursor
-        dataValue = ''
-        select
-        when (fieldPicType = 'group')    then nop
-        when (fieldPicType = 'alphanum') then call getAlphanumValueWIN
-        when (fieldPicType = 'integer' ,
-            | fieldPicType = 'decimal')  then call getNumericValueWIN
-        end
+        call getValue
         if (fieldPicType <> 'group' ,
                 & selColsConds.occurredSCIndex.fieldLabel = '+')
         then do
@@ -2730,185 +2715,75 @@ setOutTableDataField:
 
 /*
  *
- * selectDataRecordsTSO
+ * get*Value*
  *
  */
 
-selectDataRecordsTSO:
-    formatDataValues = FALSE
-    outputRecordsCounter = 1
-    lastOccurredSCIndex = -1
-    dataRecsCursor = 0
-    do while (dataRecsCursor < dataFileRecsCounter ,
-            & outputRecordsCounter <= MAX_DATA_RECORDS - 1)
-        call readDataFileRecord
-        dataRecsCursor = dataRecsCursor + 1
-        outputRecord = ' '
-        call selectOutputRecordTSO
-        outputRecordsCounter = outputRecordsCounter + 1
-    end
-    return
-
-selectOutputRecordTSO:
-    call checkAllSelRecsCondsTSO
-    if (allSelRecsCondsOccur = TRUE)
-    then do
-        formatDataValues = TRUE
-        if (occurredSCIndex <> lastOccurredSCIndex)
-        then do
-            call setOutTableHeader
-            lastOccurredSCIndex = occurredSCIndex
-        end
-        call setOutputRecordTSO
-        call writeOutputRecord
-        formatDataValues = FALSE
-    end
-    return
-
-checkAllSelRecsCondsTSO:
-    selRecsCondsOccs. = FALSE
-    occurredSCIndex = 0
-    call getAllFieldsValueTSO
-    do fieldsIndex = 1 to fieldsCounter
-        call retrieveField fieldsIndex
-        dataValue = ''
-        select
-        when (fieldPicType = 'group')    then call getGroupValueTSO
-        when (fieldPicType = 'alphanum') then call getAlphanumValueTSO
-        when (fieldPicType = 'integer' ,
-            | fieldPicType = 'decimal')  then call getNumericValueTSO
-        end
-        do selRecsCondsIndex = 1 to selRecsCondsCounter
-            call checkSelRecsConds
-        end
-        do selColsIndex = 1 to selColsCounter
-            call checkSelColsConds
-        end
-    end
-    call setAllSelRecsCondsSwitch
-    return
-
-getAllFieldsValueTSO:
+getAllFieldsValue:
     /* treated as group */
-    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
+    if (DATA_DSORG = 'seq')
+    then call getAllFieldsValueCUR
+    else call getAllFieldsValueCOL
+    return
+
+getAllFieldsValueCUR:
+    allFieldsValue = charin(DATA_FILE, dataCursor, MAX_ALPHA_LENGTH)
+    call setDataFileAtCursor
+    if (DATA_ENCODING = 'ebcdic')
+    then do
+        allFieldsValue = ebcdic2AsciiAlpha(allFieldsValue)
+    end
+    return
+
+getAllFieldsValueCOL:
+    allFieldsValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
             MAX_ALPHA_LENGTH)
     return
 
-getGroupValueTSO:
-    /* treated as alphanum, limited by MAX_ALPHA_LENGTH */
-    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
-            MAX_ALPHA_LENGTH)
+getValue:
+    dataValue = ''
+    select
+    when (fieldPicType = 'group')    then nop
+    when (fieldPicType = 'alphanum') then call getAlphanumValue
+    when (fieldPicType = 'integer' ,
+        | fieldPicType = 'decimal')  then call getNumericValue
+    end
     return
 
-getAlphanumValueTSO:
-    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
-            fieldEbcdicLength)
+getAlphanumValue:
+    if (DATA_DSORG = 'seq')
+    then call getAlphanumValueCUR
+    else call getAlphanumValueCOL
     if (formatDataValues = TRUE)
     then do
         call formatAlphanumValue
     end
     return
 
-getNumericValueTSO:
+getAlphanumValueCUR:
+    dataValue = charin(DATA_FILE, dataCursor, fieldPicIntsNum)
+    if (DATA_ENCODING = 'ebcdic')
+    then do
+        dataValue = ebcdic2AsciiAlpha(dataValue)
+    end
+    dataCursor = dataCursor + fieldPicIntsNum
+    return
+
+getAlphanumValueCOL:
     dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
             fieldEbcdicLength)
-    select
-    when (fieldPicCompType = 'zoned')   then nop
-    when (fieldPicCompType = 'comp-3')  then call getComp3ValueTSO
-    when (fieldPicCompType = 'comp')    then call getCompValueTSO
-    end
-    if (formatDataValues = TRUE)
-    then do
-        select
-        when (fieldPicCompType = 'zoned')   then call formatZonedValue
-        when (fieldPicCompType = 'comp-3')  then call formatComp3Value
-        when (fieldPicCompType = 'comp')    then call formatCompValue
-        end
-    end
     return
 
-getComp3ValueTSO:
-    dataValue = c2x(dataValue)
-    dataCursor = dataCursor + fieldEbcdicLength
-    return
-
-getCompValueTSO:
-    hexValue = c2x(dataValue)
-    binValue = x2b(hexValue)
-    if (left(binValue, 1) = '0')  /* positive */
-    then do
-        dataValue = x2d(hexValue)
-        dataValue = dataValue'C'  /* set normal sign to format */
-    end
-    else do
-        posiValue = bitxor(dataValue, 'FFFFFFFFFFFFFFFF'x)
-        hexValue  = b2x(posiValue)
-        dataValue = x2d(hexValue)
-        dataValue = dataValue - 1
-        dataValue = dataValue'D'  /* set normal sign to format */
-    end
-    dataCursor = dataCursor + fieldEbcdicLength
-    return
-
-setOutputRecordTSO:
-    outputRecord = ' '
-    do fieldsIndex = 1 to fieldsCounter
-        call retrieveField fieldsIndex
-        dataValue = ''
-        select
-        when (fieldPicType = 'group')    then nop
-        when (fieldPicType = 'alphanum') then call getAlphanumValueTSO
-        when (fieldPicType = 'integer' ,
-            | fieldPicType = 'decimal')  then call getNumericValueTSO
-        end
-        if (fieldPicType <> 'group' ,
-                & selColsConds.occurredSCIndex.fieldLabel = '+')
-        then do
-            call setOutTableDataField
-        end
-    end
-    return
-
-/*
- *
- * funzioni comuni
- *
- */
-
-setAllSelRecsCondsSwitch:
-    allSelRecsCondsOccur = TRUE
-    do selRecsCondsIndex = 1 to selRecsCondsCounter
-        if (selRecsCondsOccs.selRecsCondsIndex = FALSE)
-        then do
-            allSelRecsCondsOccur = FALSE
-        end
-    end
-    return
-
-/*
- *
- * format*
- *
- */
-
-formatAlphanumValue:
-    if (fieldTabColOverSw = TRUE)
-    then do
-        dataValue = substr(dataValue, 1, MAX_ALPHA_LENGTH) ,
-                || OVERFLOW_STRING
-    end
-    else do
-        dataValue = substr(dataValue, 1, fieldPicIntsNum)
-    end
-    return
-
-getNumericValueWIN:
+getNumericValue:
     select
     when (fieldPicCompType = 'zoned')   then call getZonedValue
     when (fieldPicCompType = 'comp-3')  then call getComp3Value
     when (fieldPicCompType = 'comp')    then call getCompValue
     end
-    if (formatDataValues = TRUE)
+    select
+    when (formatDataValues = FALSE)
+    then nop
+    when (checkValidNumValue() = TRUE)
     then do
         select
         when (fieldPicCompType = 'zoned')   then call formatZonedValue
@@ -2916,9 +2791,18 @@ getNumericValueWIN:
         when (fieldPicCompType = 'comp')    then call formatCompValue
         end
     end
+    otherwise
+        call formatNotValidValue
+    end
     return
 
 getZonedValue:
+    if (DATA_DSORG = 'seq')
+    then call getZonedValueCUR
+    else call getZonedValueCOL
+    return
+
+getZonedValueCUR:
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     select
     when (DATA_ENCODING = 'ascii')
@@ -2955,10 +2839,21 @@ checkSignedZonedFormat:
     otherwise
         /* altre eventuali gestioni */
     end
-    say 'TODO: presente campo numerico zoned - completare gestione'
+    say 'TODO: presente campo numerico zoned con segno - completare gestione'
+    return
+
+getZonedValueCOL:
+    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
+            fieldEbcdicLength)
     return
 
 getComp3Value:
+    if (DATA_DSORG = 'seq')
+    then call getComp3ValueCUR
+    else call getComp3ValueCOL
+    return
+
+getComp3ValueCUR:
     /* comp3Note */
     select
     when (DATA_ENCODING = 'ebcdic') then call getComp3ValueEbcdic
@@ -2989,7 +2884,20 @@ getComp3ValueAscii:
     dataCursor = dataCursor + length(hexDataValue)
     return
 
+getComp3ValueCOL:
+    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
+            fieldEbcdicLength)
+    dataValue = c2x(dataValue)
+    dataCursor = dataCursor + fieldEbcdicLength
+    return
+
 getCompValue:
+    if (DATA_DSORG = 'seq')
+    then call getCompValueCUR
+    else call getCompValueCOL
+    return
+
+getCompValueCUR:
     /* compNote */
     select
     when (DATA_ENCODING = 'ebcdic') then call getCompValueEbcdic
@@ -3022,6 +2930,63 @@ getCompValueAscii:
     say 'fieldPicCompType ['fieldPicCompType']'
     say 'to be defined with a real case'
     call exitError
+    return
+
+getCompValueCOL:
+    dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
+            fieldEbcdicLength)
+    hexValue = c2x(dataValue)
+    binValue = x2b(hexValue)
+    if (left(binValue, 1) = '0')  /* positive */
+    then do
+        dataValue = x2d(hexValue)
+        dataValue = dataValue'C'  /* set normal sign to format */
+    end
+    else do
+        posiValue = bitxor(dataValue, 'FFFFFFFFFFFFFFFF'x)
+        hexValue  = b2x(posiValue)
+        dataValue = x2d(hexValue)
+        dataValue = dataValue - 1
+        dataValue = dataValue'D'  /* set normal sign to format */
+    end
+    dataCursor = dataCursor + fieldEbcdicLength
+    return
+
+checkValidNumValue:
+    if (length(dataValue) > fieldPicIntsNum + fieldPicDecsNum)
+    then do
+        say 'checkValidNumValue'
+        say 'length(dataValue) > fieldPicIntsNum + fieldPicDecsNum'
+        say 'dataValue ['dataValue']'
+        say 'length(dataValue) ['length(dataValue)']'
+        say 'fieldPicIntsNum ['fieldPicIntsNum']'
+        say 'fieldPicDecsNum ['fieldPicDecsNum']'
+        return FALSE
+    end
+    if (isANumber(dataValue) = TRUE)
+    then return TRUE
+    numbersChar = substr(dataValue, 1, length(dataValue) - 1)
+    signChar    = substr(dataValue, length(dataValue), 1)
+    if (isANumber(numbersChar) = TRUE ,
+            & (signChar = 'C' | signChar = 'D' | signChar = 'F') )
+    then return TRUE
+    return FALSE
+
+/*
+ *
+ * format*
+ *
+ */
+
+formatAlphanumValue:
+    if (fieldTabColOverSw = TRUE)
+    then do
+        dataValue = substr(dataValue, 1, MAX_ALPHA_LENGTH) ,
+                || OVERFLOW_STRING
+    end
+    else do
+        dataValue = substr(dataValue, 1, fieldPicIntsNum)
+    end
     return
 
 formatZonedValue:
@@ -3059,13 +3024,7 @@ formatSign:
     return
 
 formatNumber:
-    numValue = strip(format(dataValue, 16))
-    if (datatype(dataValue) = 'NUM' ,
-            & length(numValue) < fieldPicIntsNum + fieldPicDecsNum)
-    then do
-        dataValue = format(dataValue, fieldPicIntsNum, ,
-                fieldPicDecsNum, 0)
-    end
+    dataValue = format(dataValue, fieldPicIntsNum, fieldPicDecsNum, 0)
     return
 
 formatComp3Value:
@@ -3127,7 +3086,7 @@ formatCompValue:
 
 formatCompComma:
     select
-    when (DATA_ENCODING = 'ebcdic') then call formatComp3CommaEbcdic
+    when (DATA_ENCODING = 'ebcdic') then call formatCompCommaEbcdic
     when (DATA_ENCODING = 'ascii')  then call formatCompCommaAscii
     end
     return
@@ -3136,18 +3095,25 @@ formatCompCommaAscii:
     /* TODO verificare posizione virgola */
     return
 
+formatNotValidValue:
+    if (length(dataValue) > fieldValueLength)
+    then do
+        say 'formatNotValidValue'
+        say 'length(dataValue) > fieldValueLength'
+        say 'length(dataValue) ['length(dataValue)']'
+        say 'fieldValueLength ['fieldValueLength']'
+        call exitError
+    end
+    else do
+        dataValue = dataValue ,
+                || copies(' ', fieldValueLength - length(dataValue))
+    end
+    return
 
 
 
 
 showSelRecsHelp:
-    select
-    when (os = 'WIN64') then call showSelRecsHelpWIN
-    when (os = 'TSO')   then call showSelRecsHelpTSO
-    end
-    return
-
-showSelRecsHelpWIN:
     say
     say 'blip> viewData> selRecs> help> cond format:'
     say '       [operator][value]       - example: [>=][3.01]'
@@ -3155,26 +3121,18 @@ showSelRecsHelpWIN:
     say 'blip> viewData> selRecs> help> comparison operators:'
     say '       =   : equal'
     say '       ==  : exactly equal     - example: "A "=="A"  => FALSE'
+        select
+        when (os = 'WIN64')
+        then do
     say '       \=  : not equal'
     say '       \== : exactly not equal - example: "A "\=="A" => TRUE'
-    say '       <=  : less or equal'
-    say '       <   : less'
-    say '       <<  : exactly less      - example: "A"<<"A "  => TRUE'
-    say '       >=  : greater or equal'
-    say '       >   : greater'
-    say '       >>  : exactly greater   - example: "A ">>"A"  => TRUE'
-    return
-
-showSelRecsHelpTSO:
-    say
-    say 'blip> viewData> selRecs> help> cond format:'
-    say '       [operator][value]       - example: [>=][3.01]'
-    say
-    say 'blip> viewData> selRecs> help> comparison operators:'
-    say '       =   : equal'
-    say '       ==  : exactly equal     - example: "A "=="A"  => FALSE'
+        end
+        when (os = 'TSO')
+        then do
     say '       /=  : not equal'
     say '       /== : exactly not equal - example: "A "/=="A" => TRUE'
+        end
+        end
     say '       <=  : less or equal'
     say '       <   : less'
     say '       <<  : exactly less      - example: "A"<<"A "  => TRUE'
@@ -3329,98 +3287,6 @@ ebcdic2AsciiAlpha:
     end
     return asciiString
 
-replaceText: procedure
-    parse arg oldString, ,
-              oldText, ,
-              newText
-    newString = oldString
-    oldTexPointer = index(newString, oldText)
-    replacingsCounter = 0
-    do while (oldTexPointer > 0 & replacingsCounter <= 100)
-        RTSubstrTo = oldTexPointer - 1
-        RTSubstrFrom = oldTexPointer + length( oldText )
-        newString = substr(newString, 1, RTSubstrTo) ,
-                || newText ,
-                || substr(newString, RTSubstrFrom)
-        oldTexPointer = index(newString, oldText)
-        replacingsCounter = replacingsCounter + 1
-    end
-    if (replacingsCounter > 100)
-    then do
-        say 'replaceText'
-        say 'replacingsCounter > 100'
-        say 'replacingsCounter ['replacingsCounter']'
-        say 'newString ['newString']'
-        call exitError
-    end
-    return newString
-
-/* exit */
-
-exitBlip:
-    exit 0
-
-/* error managing */
-
-checkRc: procedure
-        parse arg procLabel, returnCode, okCode
-    interpret 'returnCodeValue = 'returnCode
-    if (returnCodeValue <> okCode)
-    then do
-        say
-        say
-        say
-        say procLabel':'
-        say returnCode' ['returnCodeValue']'
-        call exitError
-    end
-    return
-
-exitError:
-    exit 99
-
-/* zonedNote:
-    picture           value  display mem.content   mem.content
-    pic 9(5)          00123+ 00123   F0F0F1F2F3    3030313233 *
-    pic s9(5)         00123+ 0012C   F0F0F1F2C3    3030313233 *
-    pic s9(5)         00123- 0012L   F0F0F1F2D3    3030313273 *
-    * with Micro-focus, but different representations are possible:
-    pic 9(5)          00123+ 00123   F0F0F1F2F3    3030313233
-    pic s9(5)         00123+ 0012C   F0F0F1F2C3    30303132@@
-    pic s9(5)         00123- 0012L   F0F0F1F2D3    30303132@@
-    this must be checked
-*/
-
-/* comp3Note:
-    picture           value  display mem.content   mem.content
-    pic s9(5) comp-3  00123+ ?       00123C        00123C
-    pic s9(5) comp-3  00123- ?       00123D        00123D
-    * different sizes, same integers, different decimals
-        ---------- number  ASCII data -------  length  notes ---------
-        -456789012,123456  {    Egโ€ฐ ?!#Em}         13  !=x'11' m=x'6D'
-        -456789012,12345   {    Egโ€ฐ ?!#E ยง}        14  !=x'11' ยง=x'0D'
-        -456789012,1234    {    Egโ€ฐ ?!#@ ยง}        14  !=x'11' ยง=x'0D'
-        -456789012,123     {    Egโ€ฐ ?!#   ยง}       15  !=x'11' ยง=x'0D'
-        -456789012,12      {    Egโ€ฐ ?!    ยง}       15  !=x'11' ยง=x'0D'
-        -456789012,1       {    Egโ€ฐ ?!     ยง}      16  !=x'11' ยง=x'0D'
-        -456789012,        {    Egโ€ฐ ?      ยง}      16  !=x'10' ยง=x'0D'
-    * different sizes, different integers, different decimals
-        ---------- number  ASCII data -------  length  notes ---------
-        +456789012,        {    Egโ€ฐ ?      ?}      16   =x'20' ?=x'0C'
-        +456789012,1       {    Egโ€ฐ ?!     ?}      16  !=x'21' ?=x'0C'
-        +456789012,12      {    Egโ€ฐ ?!    ?}       15  !=x'21' ?=x'0C'
-        +456789012,123     {    Egโ€ฐ ?!#   ?}       15  !=x'21' ?=x'0C'
-         +56789012,1234    {     ?gโ€ฐ ?!#@ ?}       15  !=x'21' ?=x'0C'
-          +6789012,12345   {      gโ€ฐ ?!#E ?}       15  !=x'21' ?=x'0C'
-           +789012,123456  {       ?โ€ฐ ?!#El}       15  !=x'21' l=x'6C'
-*/
-
-/* compNote:
-    picture           value  display mem.content   mem.content
-    pic s9(5) comp    00123+ ?       0000007B      0000007B
-    pic s9(5) comp    00123- ?       FFFFFF85      FFFFFF85
-*/
-
 
 
 
@@ -3440,10 +3306,11 @@ openReadProFile:
 
 openReadProFileWIN:
     proFileRc = stream(PRO_FILE, 'C', 'OPEN READ')
-    call checkRc 'openReadProFileWIN' ,
-            proFileRc 'READY:'
-    openReadProFileStatus = 'ok'
-    call initProFileReadCursor
+    if (proFileRc = 'READY:')
+    then do
+        openReadProFileStatus = 'ok'
+        call initProFileReadCursor
+    end
     return
 
 initProFileReadCursor:
@@ -3859,8 +3726,6 @@ openReadSelRecsFile:
 
 openReadSelRecsFileWIN:
     selRecsFileRc = stream(selRecsFile, 'C', 'OPEN READ')
-    call checkRc 'openReadSelRecsFileWIN' ,
-            selRecsFileRc 'READY:'
     openReadSelRecsFileStatus = 'ok'
     call initSelRecsFileReadCursor
     return
@@ -4061,8 +3926,6 @@ openReadSelColsFile:
 
 openReadSelColsFileWIN:
     selColsFileRc = stream(selColsFile, 'C', 'OPEN READ')
-    call checkRc 'openReadSelColsFileWIN' ,
-            selColsFileRc 'READY:'
     openReadSelColsFileStatus = 'ok'
     call initSelColsFileReadCursor
     return
@@ -4297,7 +4160,7 @@ allocateNewOutCopyFile:
     address tso
         'allocate ddname(outCpyDD) dataset('outCopyFile') new' ,
                 'space(50 1) tracks release' ,
-                'lrecl(400) block(1600) recfm(f b) dsorg(ps)'
+                'lrecl('MAX_LRECL') block(1600) recfm(f b) dsorg(ps)'
     address
     call checkRc 'allocateNewOutCopyFile' ,
             rc 0
@@ -4498,6 +4361,150 @@ startOutDataFileTSO:
     call checkRc 'startOutDataFileTSO' ,
             rc 0
     return
+
+/*
+ *
+ * utils
+ *
+ */
+
+replaceText: procedure
+    parse arg oldString, ,
+              oldText, ,
+              newText
+    newString = oldString
+    oldTextPointer = index(newString, oldText)
+    replacingsCounter = 0
+    do while (oldTextPointer > 0 & replacingsCounter <= 100)
+        RTSubstrTo = oldTextPointer - 1
+        RTSubstrFrom = oldTextPointer + length( oldText )
+        newString = substr(newString, 1, RTSubstrTo) ,
+                || newText ,
+                || substr(newString, RTSubstrFrom)
+        oldTextPointer = index(newString, oldText)
+        replacingsCounter = replacingsCounter + 1
+    end
+    if (replacingsCounter > 100)
+    then do
+        say 'replaceText'
+        say 'replacingsCounter > 100'
+        say 'replacingsCounter ['replacingsCounter']'
+        say 'newString ['newString']'
+        call exitError
+    end
+    return newString
+
+isANumber: procedure
+        parse arg data
+    if (dataType(data) = 'NUM' ,
+            & index(data, ' ') = 0)
+    then return TRUE
+    return FALSE
+
+checkRc: procedure
+        parse arg procLabel,
+                  returnCode,
+                  okCode
+    if (returnCode <> okCode)
+    then do
+        say
+        say
+        say
+        say procLabel':'
+        say 'returnCode ['returnCode']'
+        call exitError
+    end
+    return
+
+
+
+
+
+/*
+ *
+ * exit / error
+ *
+ */
+
+exitBlip:
+    exit 0
+
+exitError:
+    exit 99
+
+
+
+
+
+/* zonedNote:
+    picture           value  display mem.content   mem.content
+    pic 9(5)          00123+ 00123   F0F0F1F2F3    3030313233 *
+    pic s9(5)         00123+ 0012C   F0F0F1F2C3    3030313233 *
+    pic s9(5)         00123- 0012L   F0F0F1F2D3    3030313273 *
+    * with Micro-focus, but different representations are possible:
+    pic 9(5)          00123+ 00123   F0F0F1F2F3    3030313233
+    pic s9(5)         00123+ 0012C   F0F0F1F2C3    30303132@@
+    pic s9(5)         00123- 0012L   F0F0F1F2D3    30303132@@
+    this must be checked
+*/
+
+/* comp3Note:
+    picture           value  display mem.content   mem.content
+    pic s9(5) comp-3  00123+ ?       00123C        00123C
+    pic s9(5) comp-3  00123- ?       00123D        00123D
+    * different sizes, same integers, different decimals
+        ---------- number  ASCII data -------  length  notes ---------
+        -456789012,123456  {    Egโ€ฐ ?!#Em}         13  !=x'11' m=x'6D'
+        -456789012,12345   {    Egโ€ฐ ?!#E ยง}        14  !=x'11' ยง=x'0D'
+        -456789012,1234    {    Egโ€ฐ ?!#@ ยง}        14  !=x'11' ยง=x'0D'
+        -456789012,123     {    Egโ€ฐ ?!#   ยง}       15  !=x'11' ยง=x'0D'
+        -456789012,12      {    Egโ€ฐ ?!    ยง}       15  !=x'11' ยง=x'0D'
+        -456789012,1       {    Egโ€ฐ ?!     ยง}      16  !=x'11' ยง=x'0D'
+        -456789012,        {    Egโ€ฐ ?      ยง}      16  !=x'10' ยง=x'0D'
+    * different sizes, different integers, different decimals
+        ---------- number  ASCII data -------  length  notes ---------
+        +456789012,        {    Egโ€ฐ ?      ?}      16   =x'20' ?=x'0C'
+        +456789012,1       {    Egโ€ฐ ?!     ?}      16  !=x'21' ?=x'0C'
+        +456789012,12      {    Egโ€ฐ ?!    ?}       15  !=x'21' ?=x'0C'
+        +456789012,123     {    Egโ€ฐ ?!#   ?}       15  !=x'21' ?=x'0C'
+         +56789012,1234    {     ?gโ€ฐ ?!#@ ?}       15  !=x'21' ?=x'0C'
+          +6789012,12345   {      gโ€ฐ ?!#E ?}       15  !=x'21' ?=x'0C'
+           +789012,123456  {       ?โ€ฐ ?!#El}       15  !=x'21' l=x'6C'
+*/
+
+/* compNote:
+    picture           value  display mem.content   mem.content
+    pic s9(5) comp    00123+ ?       0000007B      0000007B
+    pic s9(5) comp    00123- ?       FFFFFF85      FFFFFF85
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
