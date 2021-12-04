@@ -1,6 +1,9 @@
 /* Rexx */
 
 /*
+    DONE
+        - eliminato parm gestione segno per signed - SIGNED_ZONED_FORMAT
+
     TODO - find ???
         - lrecl del rec ridefinito < lrecl originale
         - lrecl del rec ridefinito > lrecl originale
@@ -2945,7 +2948,7 @@ getCompValue:
 getCompValueCUR:
     /* compNote */
     select
-    when (DATA_ENCODING = 'ebcdic') then call getCompValueEbcdic2
+    when (DATA_ENCODING = 'ebcdic') then call getCompValueEbcdic
     when (DATA_ENCODING = 'ascii')  then call getCompValueAscii
     end
     return
@@ -2953,46 +2956,54 @@ getCompValueCUR:
 getCompValueEbcdic:
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     hexValue = c2x(dataValue)
-    /* correzione empirica: se length < 4 mancano bit del n. negativo
-        bisogna aggiungerne almeno 4, quindi una F in hex */
-    if (fieldEbcdicLength < 4)
-    then do
-        hexValue = 'F'hexValue
-    end
-    dataValue = x2d(hexValue, length(hexValue))
-    if (dataValue > 0)
-    then dataValue = abs(dataValue) || 'C'
-    else dataValue = abs(dataValue) || 'D'
-    dataCursor = dataCursor + fieldEbcdicLength
-    return
 
-/* devo usare questo metodo perche' con x2d(n, l) ci sono errori */
-getCompValueEbcdic2:
-    dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
-    hexValue = c2x(dataValue)
-    /* correzione empirica: se length < 4 mancano bit del n. negativo */
-    /* bisogna aggiungerne almeno 4, quindi una F in hex */
-    if (fieldEbcdicLength < 4)
+/*                        1110001001000000        E240    -7616
+       -> 00000000000000011110001001000000    0001E240    123456
+                          0001110111000000        1DC0    7616
+       -> 11111111111111100001110111000000    FFFE1DC0    -123456 */
+
+    if (fieldPicDecsNum > 0 ,
+            & fieldEbcdicLength <= 2 ,
+            & hexValue <> 0)
     then do
-        hexValue = 'FE'hexValue
+        if (left(binValue, 1) = '0')  /* correzione empirica */
+        then do
+            hexValue = '0001'hexValue
+        end
+        else do
+            hexValue = 'FFFE'hexValue
+        end
     end
+
+    dataValue = x2d(hexValue, length(hexValue))
     binValue = x2b(hexValue)
     if (left(binValue, 1) = '0')  /* positive */
     then do
         dataValue = x2d(hexValue)
-        dataValue = dataValue'C'
+        dataSign = 'C'
     end
     else do
-        posiValue = binFlip(binValue)
-        hexValue  = b2x(posiValue)
+        flipValue = binFlip(binValue)
+        hexValue  = b2x(flipValue)
         dataValue = x2d(hexValue) + 1
-        dataValueLDiff = fieldPicIntsNum + fieldPicDecsNum - length(dataValue)
-        if (dataValueLDiff > 0)  /* correzione empirica */
-        then do
-            dataValue = copies('0', dataValueLDiff) || dataValue
-        end
-        dataValue = dataValue'D'
+        dataSign = 'D'
     end
+    dataValueLDiff = fieldPicIntsNum + fieldPicDecsNum - length(dataValue)
+    select  /* correzione empirica */
+    when (dataValueLDiff = 0)
+    then do
+        nop
+    end
+    when (dataValueLDiff > 0)
+    then do
+        dataValue = copies('0', dataValueLDiff) || dataValue
+    end
+    when (dataValueLDiff < 0)
+    then do
+        dataValue = right(dataValue, fieldPicIntsNum + fieldPicDecsNum)
+    end
+    end
+    dataValue = dataValue || dataSign
     dataCursor = dataCursor + fieldEbcdicLength
     return
 
@@ -3109,7 +3120,13 @@ formatNumber:
     then do
         dataValue = ' 0'substr(dataValue, 3)
     end
-    dataValue = replaceText(dataValue, ' 0', '  ')
+    dataValue = replaceText(dataValue, ' 0', ' ')
+    if (dataValue = '' ,
+            | dataValue = '+' ,
+            | dataValue = '-')
+    then do
+        dataValue = overlay('0', dataValue, length(dataValue))
+    end
     return
 
 formatNotValidNumValue:
@@ -4504,3 +4521,5 @@ exitError:
     pic s9(5) comp    00123+ ?       0000007B      0000007B
     pic s9(5) comp    00123- ?       FFFFFF85      FFFFFF85
 */
+
+
