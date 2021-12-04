@@ -2849,8 +2849,8 @@ getZonedValue:
 getZonedValueCUR:
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     select
-    when (DATA_ENCODING = 'ebcdic') then getZonedValueEbcdic
-    when (DATA_ENCODING = 'ascii')  then getZonedValueAscii
+    when (DATA_ENCODING = 'ebcdic') then call getZonedValueEbcdic
+    when (DATA_ENCODING = 'ascii')  then call getZonedValueAscii
     end
     return
 
