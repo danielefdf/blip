@@ -1,10 +1,9 @@
 /* Rexx */
 
 /*
-    TODO - find TODO
+    TODO - find ???
         - lrecl del rec ridefinito < lrecl originale
         - lrecl del rec ridefinito > lrecl originale
-        - doppia gestione segno per signed - parametro SIGNED_ZONED_FORMAT
 */
 
 /* debug tools
@@ -324,10 +323,22 @@ setFilesTSO:
     outDataFile = "'" || BLIP_DIRECTORY'.OUTDATAF'    || "'"
     return
 
+/*
+ *
+ * viewCopy
+ *
+ */
+
 viewCopy:
     call getFieldData
     call showCopy
     return
+
+/*
+ *
+ * getFieldData
+ *
+ */
 
 getFieldData:
     call setNormsList
@@ -340,98 +351,11 @@ getFieldData:
     */
     return
 
-viewData:
-    call getFieldData
-    call showData
-    return
-
-checkCurrentFiles:
-    if (DATA_FILE <> '?' & DATA_FILE <> '')
-    then do
-        call openReadDataFile
-    end
-    if (COPY_FILE <> '?' & COPY_FILE <> '')
-    then do
-        call openReadCopyFile
-    end
-    call openWriteOutDataFile
-    call openWriteOutCopyFile
-    if (COPY_FILE <> '?' & COPY_FILE <> '')
-    then do
-        call openReadSelRecsFile
-        call openReadSelColsFile
-    end
-    return
-
-setProFileStatus:
-    proFileStatus = 'ok'
-    select
-    when (DATA_FILE = '?' | DATA_FILE = '')
-    then do
-        say
-        say 'blip> checkProfile> data file: missing'
-        proFileStatus = 'ko'
-    end
-    when (datatype(MAX_LRECL) <> 'NUM')
-    then do
-        say
-        say 'blip> checkProfile> max LRECL: wrong value'
-        proFileStatus = 'ko'
-    end
-    when (DATA_ENCODING <> 'ascii' & DATA_ENCODING <> 'ebcdic')
-    then do
-        say
-        say 'blip> checkProfile> data file encoding: wrong value'
-        say 'blip> checkProfile> DATA_ENCODING='DATA_ENCODING
-        proFileStatus = 'ko'
-    end
-    when (DATA_DSORG <> 'seq' & DATA_DSORG <> 'lseq')
-    then do
-        say
-        say 'blip> checkProfile> data file organization: wrong value'
-        proFileStatus = 'ko'
-    end
-    when (EOL_TYPE <> 'CR' & EOL_TYPE <> 'LF' & EOL_TYPE <> 'CRLF')
-    then do
-        say
-        say 'blip> checkProfile> eol: wrong value'
-        proFileStatus = 'ko'
-    end
-    when (COPY_FILE = '?' | COPY_FILE = '')
-    then do
-        say
-        say 'blip> checkProfile> copy file: missing'
-        proFileStatus = 'ko'
-    end
-    when (datatype(MAX_DATA_RECORDS) <> 'NUM')
-    then do
-        say
-        say 'blip> checkProfile> max records: wrong value'
-        proFileStatus = 'ko'
-    end
-    when (datatype(MAX_ALPHA_LENGTH) <> 'NUM')
-    then do
-        say
-        say 'blip> checkProfile> max length for alpha: wrong value'
-        proFileStatus = 'ko'
-    end
-    when (datatype(RESTART_LOG_LEVEL) <> 'NUM' ,
-            | ((RESTART_LOG_LEVEL <= 0 ,
-                | RESTART_LOG_LEVEL >= 50)) ,
-                & RESTART_LOG_LEVEL <> 99)
-    then do
-        say
-        say 'blip> checkProfile> restart from level: wrong value'
-        proFileStatus = 'ko'
-    end
-    otherwise
-        nop
-    end
-    return
-
-setAllSelColsVisible:
-    selColsConds. = '+'
-    return
+/*
+ *
+ * setNormsList
+ *
+ */
 
 setNormsList:
     norms. = ''
@@ -495,6 +419,12 @@ addNormsTabRec:
     norms.normsCounter = copyRecBody' '
     return
 
+/*
+ *
+ * setMonosList
+ *
+ */
+
 setMonosList:
     monos. = ''
     monosCounter = 0
@@ -538,6 +468,12 @@ addMonoRec:
     monosCounter = monosCounter + 1
     monos.monosCounter = mono
     return
+
+/*
+ *
+ * setFieldsList
+ *
+ */
 
 setFieldsList:
     call initFields
@@ -1134,6 +1070,12 @@ getFieldOccursNum:
     fieldOccursNum = bodyWord
     return
 
+/*
+ *
+ * setOccursFields
+ *
+ */
+
 setOccursFields:
     call setOccursFields1
     do while (occursSwitch = 'found')
@@ -1267,6 +1209,12 @@ setRedefsDegreesFound:
         redefsDegreesFound = fieldRedefsDegree
     end
     return
+
+/*
+ *
+ * setEbcdicFromToCols
+ *
+ */
 
 setEbcdicFromToCols:
     columnsCursor = 1
@@ -1695,6 +1643,12 @@ displayField:
             || '*toCol['fieldEbcdicToCol']'
     return
 
+/*
+ *
+ * showCopy
+ *
+ */
+
 showCopy:
     call setOutCopyHeader
     call writeOutCopyRecord
@@ -1799,6 +1753,111 @@ setStructureString:
             || '|'fieldLevel
     return
 
+/*
+ *
+ * viewData
+ *
+ */
+
+viewData:
+    call getFieldData
+    call showData
+    return
+
+checkCurrentFiles:
+    if (DATA_FILE <> '?' & DATA_FILE <> '')
+    then do
+        call openReadDataFile
+    end
+    if (COPY_FILE <> '?' & COPY_FILE <> '')
+    then do
+        call openReadCopyFile
+    end
+    call openWriteOutDataFile
+    call openWriteOutCopyFile
+    if (COPY_FILE <> '?' & COPY_FILE <> '')
+    then do
+        call openReadSelRecsFile
+        call openReadSelColsFile
+    end
+    return
+
+setProFileStatus:
+    proFileStatus = 'ok'
+    select
+    when (DATA_FILE = '?' | DATA_FILE = '')
+    then do
+        say
+        say 'blip> checkProfile> data file: missing'
+        proFileStatus = 'ko'
+    end
+    when (datatype(MAX_LRECL) <> 'NUM')
+    then do
+        say
+        say 'blip> checkProfile> max LRECL: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (DATA_ENCODING <> 'ascii' & DATA_ENCODING <> 'ebcdic')
+    then do
+        say
+        say 'blip> checkProfile> data file encoding: wrong value'
+        say 'blip> checkProfile> DATA_ENCODING='DATA_ENCODING
+        proFileStatus = 'ko'
+    end
+    when (DATA_DSORG <> 'seq' & DATA_DSORG <> 'lseq')
+    then do
+        say
+        say 'blip> checkProfile> data file organization: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (EOL_TYPE <> 'CR' & EOL_TYPE <> 'LF' & EOL_TYPE <> 'CRLF')
+    then do
+        say
+        say 'blip> checkProfile> eol: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (COPY_FILE = '?' | COPY_FILE = '')
+    then do
+        say
+        say 'blip> checkProfile> copy file: missing'
+        proFileStatus = 'ko'
+    end
+    when (datatype(MAX_DATA_RECORDS) <> 'NUM')
+    then do
+        say
+        say 'blip> checkProfile> max records: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (datatype(MAX_ALPHA_LENGTH) <> 'NUM')
+    then do
+        say
+        say 'blip> checkProfile> max length for alpha: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (datatype(RESTART_LOG_LEVEL) <> 'NUM' ,
+            | ((RESTART_LOG_LEVEL <= 0 ,
+                | RESTART_LOG_LEVEL >= 50)) ,
+                & RESTART_LOG_LEVEL <> 99)
+    then do
+        say
+        say 'blip> checkProfile> restart from level: wrong value'
+        proFileStatus = 'ko'
+    end
+    otherwise
+        nop
+    end
+    return
+
+setAllSelColsVisible:
+    selColsConds. = '+'
+    return
+
+/*
+ *
+ * showData
+ *
+ */
+
 showData:
     command = ''
     do while (SYS_TRUE)
@@ -1821,6 +1880,12 @@ showData:
         parse pull command
     end
     return
+
+/*
+ *
+ * setSelRecs
+ *
+ */
 
 setSelRecs:
     if (selRecsFileWritten = FALSE ,
@@ -2045,6 +2110,12 @@ setSelRecsCondition:
     selRecsCondOperators.selRecsCondsCounter = selRecsOperator
     selRecsCondValues.selRecsCondsCounter    = selRecsValue
     return
+
+/*
+ *
+ * setSelCols
+ *
+ */
 
 setSelCols:
     if (selColsFileWritten = FALSE ,
@@ -2507,15 +2578,6 @@ selectDataRecords:
             call readDataFileRecord
         end
         call selectOutputRecord
-        if (DATA_DSORG = 'seq')
-        then do
-            select
-            when (EOL_TYPE = 'CR')   then eolLength = 1
-            when (EOL_TYPE = 'LF')   then eolLength = 1
-            when (EOL_TYPE = 'CRLF') then eolLength = 2
-            end
-            dataCursor = dataCursor + eolLength
-        end
     end
     return
 
@@ -2817,25 +2879,7 @@ getZonedValueCUR:
     return
 
 checkSignedZonedFormat:
-    /* zonedNote
-        leggere esadecimale
-        esaminare contenuto e verificare gestione segno
-        riportare contenuto in formato 12345C/D/F per formattazione */
-    select
-    when (SIGNED_ZONED_FORMAT = 'hex')
-    then do
-        /* preserva il codice esadecimale,
-            quindi i char sono errati */
-    end
-    when (SIGNED_ZONED_FORMAT = 'char')
-    then do
-        /* preserva i chars,
-            quindi i codici esadecimali sono errati */
-    end
-    otherwise
-        /* altre eventuali gestioni */
-    end
-    say 'TODO: presente campo numerico zoned con segno - completare gestione'
+    say '??? presente campo numerico zoned con segno - completare gestione'
     return
 
 getZonedValueCOL:
@@ -2960,7 +3004,7 @@ getCompValueAscii:
     call exitError
     return
 
-getCompValueCOL:  /* ??? */
+getCompValueCOL:  /* ??? da sistemare per MF */
     dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
             fieldEbcdicLength)
     hexValue = c2x(dataValue)
@@ -4402,10 +4446,6 @@ checkRc: procedure
         call exitError
     end
     return
-
-
-
-
 
 /*
  *
