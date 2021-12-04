@@ -1,12 +1,10 @@
 /* Rexx */
 
 /*
-   TODO - find TODO
- - doppia gestione segno per signed - parametro SIGNED_ZONED_FORMAT
- - fare copy definitiva e provare
-     - formattazione comp
-     - lrecl del rec ridefinito < lrecl originale
-     - lrecl del rec ridefinito > lrecl originale
+    TODO - find TODO
+        - lrecl del rec ridefinito < lrecl originale
+        - lrecl del rec ridefinito > lrecl originale
+        - doppia gestione segno per signed - parametro SIGNED_ZONED_FORMAT
 */
 
 /* debug tools
@@ -2741,6 +2739,7 @@ getAllFieldsValueCOL:
     return
 
 getValue:
+    numeric digits 19  /* per evitare notazione esponenziale in output */
     dataValue = ''
     select
     when (fieldPicType = 'group')    then nop
@@ -2748,6 +2747,7 @@ getValue:
     when (fieldPicType = 'integer' ,
         | fieldPicType = 'decimal')  then call getNumericValue
     end
+    numeric digits 9  /* ripristino default */
     return
 
 getAlphanumValue:
@@ -2785,14 +2785,10 @@ getNumericValue:
     then nop
     when (checkValidNumValue() = TRUE)
     then do
-        select
-        when (fieldPicCompType = 'zoned')   then call formatZonedValue
-        when (fieldPicCompType = 'comp-3')  then call formatComp3Value
-        when (fieldPicCompType = 'comp')    then call formatCompValue
-        end
+        call formatValidNumValue
     end
     otherwise
-        call formatNotValidValue
+        call formatNotValidNumValue
     end
     return
 
@@ -2862,8 +2858,13 @@ getComp3ValueCUR:
     return
 
 getComp3ValueEbcdic:
+/* correzione empirica: legge sempre uno 0 di troppo se length > 1 */
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     dataValue = c2x(dataValue)
+    if (fieldEbcdicLength > 1)
+    then do
+        dataValue = substr(dataValue, 2)
+    end
     dataCursor = dataCursor + fieldEbcdicLength
     return
 
@@ -2900,7 +2901,7 @@ getCompValue:
 getCompValueCUR:
     /* compNote */
     select
-    when (DATA_ENCODING = 'ebcdic') then call getCompValueEbcdic
+    when (DATA_ENCODING = 'ebcdic') then call getCompValueEbcdic2
     when (DATA_ENCODING = 'ascii')  then call getCompValueAscii
     end
     return
@@ -2908,18 +2909,45 @@ getCompValueCUR:
 getCompValueEbcdic:
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     hexValue = c2x(dataValue)
+    /* correzione empirica: se length < 4 mancano bit del n. negativo
+        bisogna aggiungerne almeno 4, quindi una F in hex */
+    if (fieldEbcdicLength < 4)
+    then do
+        hexValue = 'F'hexValue
+    end
+    dataValue = x2d(hexValue, length(hexValue))
+    if (dataValue > 0)
+    then dataValue = abs(dataValue) || 'C'
+    else dataValue = abs(dataValue) || 'D'
+    dataCursor = dataCursor + fieldEbcdicLength
+    return
+
+/* devo usare questo metodo perche' con x2d(n, l) ci sono errori */
+getCompValueEbcdic2:
+    dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
+    hexValue = c2x(dataValue)
+    /* correzione empirica: se length < 4 mancano bit del n. negativo */
+    /* bisogna aggiungerne almeno 4, quindi una F in hex */
+    if (fieldEbcdicLength < 4)
+    then do
+        hexValue = 'FE'hexValue
+    end
     binValue = x2b(hexValue)
     if (left(binValue, 1) = '0')  /* positive */
     then do
         dataValue = x2d(hexValue)
-        dataValue = dataValue'C'  /* set normal sign to format */
+        dataValue = dataValue'C'
     end
     else do
-        posiValue = bitxor(dataValue, 'FFFFFFFFFFFFFFFF'x)
+        posiValue = binFlip(binValue)
         hexValue  = b2x(posiValue)
-        dataValue = x2d(hexValue)
-        dataValue = dataValue - 1
-        dataValue = dataValue'D'  /* set normal sign to format */
+        dataValue = x2d(hexValue) + 1
+        dataValueLDiff = fieldPicIntsNum + fieldPicDecsNum - length(dataValue)
+        if (dataValueLDiff > 0)  /* correzione empirica */
+        then do
+            dataValue = copies('0', dataValueLDiff) || dataValue
+        end
+        dataValue = dataValue'D'
     end
     dataCursor = dataCursor + fieldEbcdicLength
     return
@@ -2932,7 +2960,7 @@ getCompValueAscii:
     call exitError
     return
 
-getCompValueCOL:
+getCompValueCOL:  /* ??? */
     dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
             fieldEbcdicLength)
     hexValue = c2x(dataValue)
@@ -2953,23 +2981,19 @@ getCompValueCOL:
     return
 
 checkValidNumValue:
-    if (length(dataValue) > fieldPicIntsNum + fieldPicDecsNum)
-    then do
-        say 'checkValidNumValue'
-        say 'length(dataValue) > fieldPicIntsNum + fieldPicDecsNum'
-        say 'dataValue ['dataValue']'
-        say 'length(dataValue) ['length(dataValue)']'
-        say 'fieldPicIntsNum ['fieldPicIntsNum']'
-        say 'fieldPicDecsNum ['fieldPicDecsNum']'
-        return FALSE
-    end
     if (isANumber(dataValue) = TRUE)
     then return TRUE
     numbersChar = substr(dataValue, 1, length(dataValue) - 1)
     signChar    = substr(dataValue, length(dataValue), 1)
     if (isANumber(numbersChar) = TRUE ,
             & (signChar = 'C' | signChar = 'D' | signChar = 'F') )
-    then return TRUE
+    then do
+        /* i dati COMP possono contenere piu' cifre di quelle che nominalmente
+           spetterebbero al campo secondo la PIC */
+        if (length(numbersChar) > fieldPicIntsNum + fieldPicDecsNum)
+        then return FALSE
+        else return TRUE
+    end
     return FALSE
 
 /*
@@ -2989,21 +3013,12 @@ formatAlphanumValue:
     end
     return
 
-formatZonedValue:
-    if (fieldPicType = 'decimal')
-    then do
-        call formatZonedComma
-    end
+formatValidNumValue:
     if (fieldPicSign = 'signed')
     then do
         call formatSign
     end
     call formatNumber
-    return
-
-formatZonedComma:
-    dataValue = substr(dataValue, 1, fieldPicIntsNum) ,
-            || '.'substr(dataValue, fieldPicIntsNum + 1)
     return
 
 formatSign:
@@ -3024,85 +3039,44 @@ formatSign:
     return
 
 formatNumber:
-    dataValue = format(dataValue, fieldPicIntsNum, fieldPicDecsNum, 0)
-    return
-
-formatComp3Value:
-    if (fieldPicType = 'decimal')
+    if (left(dataValue, 1) = '+' ,
+            | left(dataValue, 1) = '-')
     then do
-        call formatComp3Comma
+        signChar    = substr(dataValue, 1, 1)
+        numbersChar = substr(dataValue, 2, length(dataValue) - 1)
     end
-    call formatSign
-    call formatNumber
-    return
-
-formatComp3Comma:
-    select
-    when (DATA_ENCODING = 'ebcdic') then call formatComp3CommaEbcdic
-    when (DATA_ENCODING = 'ascii')  then call formatComp3CommaAscii
+    else do
+        signChar    = ''
+        numbersChar = dataValue
     end
-    return
-
-formatComp3CommaEbcdic:
-    dataValue = substr(dataValue, 1, fieldPicIntsNum) ,
-            || '.'substr(dataValue, fieldPicIntsNum + 1)
-    return
-
-formatComp3CommaAscii:
-    significantFound = FALSE
-    decimalZeros = 0
-    dataValueDecimalChars = 0
-    do dataValueCharsCursor = length(dataValue) - 1 to 1 by -1 ,
-            while (dataValueDecimalChars < fieldPicDecsNum)
-        dataValueChar = substr(dataValue, dataValueCharsCursor, 1)
-        if (dataValueChar = '0' ,
-                & significantFound = FALSE)
-        then do
-            decimalZeros = decimalZeros + 1
-            if (decimalZeros = 2)
-            then do
-                dataValueDecimalChars = dataValueDecimalChars + 1
-                decimalZeros = 0
-            end
-        end
-        else do
-            dataValueDecimalChars = dataValueDecimalChars + 1
-            significantFound = TRUE
-        end
-    end
-    commaIndex = dataValueCharsCursor
-    dataValue = substr(dataValue, 1, commaIndex) ,
-            || '.'substr(dataValue, commaIndex + 1)
-    return
-
-formatCompValue:
-    if (fieldPicType = 'decimal')
+    if (fieldPicDecsNum = 0)
     then do
-        call formatCompComma
+        intNumbers = substr(numbersChar, 1, fieldPicIntsNum)
+        dataValue = signChar || intNumbers
     end
-    call formatSign
-    call formatNumber
-    return
-
-formatCompComma:
-    select
-    when (DATA_ENCODING = 'ebcdic') then call formatCompCommaEbcdic
-    when (DATA_ENCODING = 'ascii')  then call formatCompCommaAscii
+    else do
+        intNumbers = substr(numbersChar, 1, fieldPicIntsNum)
+        decNumbers = substr(numbersChar, fieldPicIntsNum + 1)
+        dataValue = signChar || intNumbers || '.' || decNumbers
     end
+    dataValue = replaceText(dataValue, '+0', ' +')
+    dataValue = replaceText(dataValue, '-0', ' -')
+    if (left(dataValue, 2) = '00')
+    then do
+        dataValue = ' 0'substr(dataValue, 3)
+    end
+    dataValue = replaceText(dataValue, ' 0', '  ')
     return
 
-formatCompCommaAscii:
-    /* TODO verificare posizione virgola */
-    return
-
-formatNotValidValue:
+formatNotValidNumValue:
     if (length(dataValue) > fieldValueLength)
     then do
-        say 'formatNotValidValue'
+        say 'formatNotValidNumValue'
         say 'length(dataValue) > fieldValueLength'
         say 'length(dataValue) ['length(dataValue)']'
         say 'fieldValueLength ['fieldValueLength']'
-        call exitError
+        dataValue = substr(dataValue, 1, fieldValueLength)
+        dataValue = substr(dataValue, 1, length(dataValue) - 1) || '?'
     end
     else do
         dataValue = dataValue ,
@@ -3254,18 +3228,23 @@ loadEbcdicToAscii:
 ebcdic2AsciiNum:
         arg ebcdicString
     ebcdicHex = c2x(ebcdicString)
+    ebcSignChar = substr(ebcdicHex, length(ebcdicHex) - 1, 1)
     asciiHex = replaceText(ebcdicHex, 'F', '')
-    asciiString = 0
-    if (datatype(asciiHex, 'X') = SYS_TRUE)
+    select
+    when (ebcSignChar = 'C')
     then do
-        asciiString = asciiHex
+        asciiHex = replaceText(asciiHex, 'C', '')
+        asciiHex = asciiHex'C'
     end
-    else do
-        say 'ebcdic2AsciiNum'
-        say 'datatype(asciiHex, "X") = FALSE'
-        say 'asciiHex ['asciiHex']'
-        call exitError
+    when (ebcSignChar = 'D')
+    then do
+        asciiHex = replaceText(asciiHex, 'D', '')
+        asciiHex = asciiHex'D'
     end
+    otherwise
+        nop
+    end
+    asciiString = asciiHex
     return asciiString
 
 ebcdic2AsciiAlpha:
@@ -4397,9 +4376,17 @@ replaceText: procedure
 isANumber: procedure
         parse arg data
     if (dataType(data) = 'NUM' ,
-            & index(data, ' ') = 0)
+            & index(data, ' ') = 0 ,
+            & index(data, 'E') = 0)
     then return TRUE
     return FALSE
+
+binFlip: procedure
+        parse arg binString
+    binString = replaceText(binString, '0', '?')
+    binString = replaceText(binString, '1', '0')
+    binString = replaceText(binString, '?', '1')
+    return binString
 
 checkRc: procedure
         parse arg procLabel,
@@ -4477,35 +4464,3 @@ exitError:
     pic s9(5) comp    00123+ ?       0000007B      0000007B
     pic s9(5) comp    00123- ?       FFFFFF85      FFFFFF85
 */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
