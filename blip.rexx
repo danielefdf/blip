@@ -1,14 +1,5 @@
 /* Rexx */
 
-/*
-    DONE
-        - eliminato parm gestione segno per signed - SIGNED_ZONED_FORMAT
-
-    TODO - find ???
-        - lrecl del rec ridefinito < lrecl originale
-        - lrecl del rec ridefinito > lrecl originale
-*/
-
 /* debug tools
     trace(?l)
     trace(?i)
@@ -2618,7 +2609,6 @@ checkAllSelRecsConds:
     call getAllFieldsValue
     do fieldsIndex = 1 to fieldsCounter
         call retrieveField fieldsIndex
-        call checkRedefCursor
         call getValue
         do selRecsCondsIndex = 1 to selRecsCondsCounter
             call checkSelRecsConds
@@ -2633,15 +2623,6 @@ checkAllSelRecsConds:
 
 saveStartDataCursor:
     startDataCursor = dataCursor
-    return
-
-checkRedefCursor:
-    if (fieldRedefdLabel <> '')
-    then do
-        dataCursor = fieldsDataCursors.fieldLogLevel.fieldRedefdLabel
-        call setDataFileAtCursor
-    end
-    fieldsDataCursors.fieldLogLevel.fieldLabel = dataCursor
     return
 
 checkSelRecsConds:
@@ -2750,7 +2731,6 @@ setOutputRecord:
     outputRecord = OUT_REC_INITIAL_SPACE
     do fieldsIndex = 1 to fieldsCounter
         call retrieveField fieldsIndex
-        call checkRedefCursor
         call getValue
         if (fieldPicType <> 'group' ,
                 & selColsConds.occurredSCIndex.fieldLabel = '+')
@@ -2783,6 +2763,7 @@ setOutTableDataField:
  */
 
 getAllFieldsValue:
+    dataCursor = 1 + (dataFileRecsCursor - 1) * 600
     /* treated as group */
     if (DATA_DSORG = 'seq')
     then call getAllFieldsValueCUR
@@ -2804,6 +2785,7 @@ getAllFieldsValueCOL:
     return
 
 getValue:
+    dataCursor = fieldEbcdicFromCol + (dataFileRecsCursor - 1) * 600
     numeric digits 19  /* per evitare notazione esponenziale in output */
     dataValue = ''
     select
@@ -2831,7 +2813,6 @@ getAlphanumValueCUR:
     then do
         dataValue = ebcdic2AsciiAlpha(dataValue)
     end
-    dataCursor = dataCursor + fieldPicIntsNum
     return
 
 getAlphanumValueCOL:
@@ -2847,7 +2828,9 @@ getNumericValue:
     end
     select
     when (formatDataValues = FALSE)
-    then nop
+    then do
+        nop
+    end
     when (checkValidNumValue() = TRUE)
     then do
         call formatValidNumValue
@@ -2866,23 +2849,21 @@ getZonedValue:
 getZonedValueCUR:
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     select
-    when (DATA_ENCODING = 'ascii')
-    then do
-        if (fieldPicSign = 'signed')
-        then do
-            call checkSignedZonedFormat
-        end
+    when (DATA_ENCODING = 'ebcdic') then getZonedValueEbcdic
+    when (DATA_ENCODING = 'ascii')  then getZonedValueAscii
     end
-    when (DATA_ENCODING = 'ebcdic')
-    then do
-        dataValue = ebcdic2AsciiNum(dataValue)
-    end
-    end
-    dataCursor = dataCursor + fieldEbcdicLength
     return
 
-checkSignedZonedFormat:
-    say '??? presente campo numerico zoned con segno - completare gestione'
+getZonedValueEbcdic:
+    dataValue = ebcdic2AsciiNum(dataValue)
+    return
+
+getZonedValueAscii:
+    say 'getZonedValueAscii'
+    say 'fieldLabel ['fieldLabel']'
+    say 'fieldPicCompType ['fieldPicCompType']'
+    say 'field format not supported with ASCII encoding'
+    call exitError
     return
 
 getZonedValueCOL:
@@ -2897,7 +2878,6 @@ getComp3Value:
     return
 
 getComp3ValueCUR:
-    /* comp3Note */
     select
     when (DATA_ENCODING = 'ebcdic') then call getComp3ValueEbcdic
     when (DATA_ENCODING = 'ascii')  then call getComp3ValueAscii
@@ -2905,38 +2885,27 @@ getComp3ValueCUR:
     return
 
 getComp3ValueEbcdic:
-/* correzione empirica: legge sempre uno 0 di troppo se length > 1 */
+    /* correzione empirica: legge sempre uno 0 di troppo se length > 1 */
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     dataValue = c2x(dataValue)
     if (fieldEbcdicLength > 1)
     then do
         dataValue = substr(dataValue, 2)
     end
-    dataCursor = dataCursor + fieldEbcdicLength
     return
 
 getComp3ValueAscii:
-    hexDataChunk = charin(DATA_FILE, dataCursor, DATA_CHUNK_LENGTH)
-    dataChunk = c2x(hexDataChunk)
-    endOfFieldFound = FALSE
-    do dataChunkCursor = 1 to length(dataChunk) ,
-            while (endOfFieldFound = FALSE)
-        dataChar = substr(dataChunk, dataChunkCursor, 1)
-        dataValue = dataValue || dataChar
-        if (dataChar = 'F' | dataChar = 'C' | dataChar = 'D')
-        then do
-            endOfFieldFound = TRUE
-        end
-    end
-    hexDataValue = x2c(dataValue)
-    dataCursor = dataCursor + length(hexDataValue)
+    say 'getComp3ValueAscii'
+    say 'fieldLabel ['fieldLabel']'
+    say 'fieldPicCompType ['fieldPicCompType']'
+    say 'field format not supported with ASCII encoding'
+    call exitError
     return
 
 getComp3ValueCOL:
     dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
             fieldEbcdicLength)
     dataValue = c2x(dataValue)
-    dataCursor = dataCursor + fieldEbcdicLength
     return
 
 getCompValue:
@@ -2946,7 +2915,6 @@ getCompValue:
     return
 
 getCompValueCUR:
-    /* compNote */
     select
     when (DATA_ENCODING = 'ebcdic') then call getCompValueEbcdic
     when (DATA_ENCODING = 'ascii')  then call getCompValueAscii
@@ -2957,16 +2925,18 @@ getCompValueEbcdic:
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     hexValue = c2x(dataValue)
 
-/*                        1110001001000000        E240    -7616
+/* correzione empirica:
+                          1110001001000000        E240    -7616
        -> 00000000000000011110001001000000    0001E240    123456
                           0001110111000000        1DC0    7616
-       -> 11111111111111100001110111000000    FFFE1DC0    -123456 */
+       -> 11111111111111100001110111000000    FFFE1DC0    -123456
+*/
 
     if (fieldPicDecsNum > 0 ,
             & fieldEbcdicLength <= 2 ,
             & hexValue <> 0)
     then do
-        if (left(binValue, 1) = '0')  /* correzione empirica */
+        if (left(binValue, 1) = '0')
         then do
             hexValue = '0001'hexValue
         end
@@ -3004,14 +2974,13 @@ getCompValueEbcdic:
     end
     end
     dataValue = dataValue || dataSign
-    dataCursor = dataCursor + fieldEbcdicLength
     return
 
 getCompValueAscii:
     say 'getCompValueAscii'
     say 'fieldLabel ['fieldLabel']'
     say 'fieldPicCompType ['fieldPicCompType']'
-    say 'to be defined with a real case'
+    say 'field format not supported with ASCII encoding'
     call exitError
     return
 
@@ -3032,7 +3001,6 @@ getCompValueCOL:  /* ??? da sistemare per MF */
         dataValue = dataValue - 1
         dataValue = dataValue'D'  /* set normal sign to format */
     end
-    dataCursor = dataCursor + fieldEbcdicLength
     return
 
 checkValidNumValue:
@@ -4475,51 +4443,3 @@ exitBlip:
 
 exitError:
     exit 99
-
-
-
-
-
-/* zonedNote:
-    picture           value  display mem.content   mem.content
-    pic 9(5)          00123+ 00123   F0F0F1F2F3    3030313233 *
-    pic s9(5)         00123+ 0012C   F0F0F1F2C3    3030313233 *
-    pic s9(5)         00123- 0012L   F0F0F1F2D3    3030313273 *
-    * with Micro-focus, but different representations are possible:
-    pic 9(5)          00123+ 00123   F0F0F1F2F3    3030313233
-    pic s9(5)         00123+ 0012C   F0F0F1F2C3    30303132@@
-    pic s9(5)         00123- 0012L   F0F0F1F2D3    30303132@@
-    this must be checked
-*/
-
-/* comp3Note:
-    picture           value  display mem.content   mem.content
-    pic s9(5) comp-3  00123+ ?       00123C        00123C
-    pic s9(5) comp-3  00123- ?       00123D        00123D
-    * different sizes, same integers, different decimals
-        ---------- number  ASCII data -------  length  notes ---------
-        -456789012,123456  {    Egโ€ฐ ?!#Em}         13  !=x'11' m=x'6D'
-        -456789012,12345   {    Egโ€ฐ ?!#E ยง}        14  !=x'11' ยง=x'0D'
-        -456789012,1234    {    Egโ€ฐ ?!#@ ยง}        14  !=x'11' ยง=x'0D'
-        -456789012,123     {    Egโ€ฐ ?!#   ยง}       15  !=x'11' ยง=x'0D'
-        -456789012,12      {    Egโ€ฐ ?!    ยง}       15  !=x'11' ยง=x'0D'
-        -456789012,1       {    Egโ€ฐ ?!     ยง}      16  !=x'11' ยง=x'0D'
-        -456789012,        {    Egโ€ฐ ?      ยง}      16  !=x'10' ยง=x'0D'
-    * different sizes, different integers, different decimals
-        ---------- number  ASCII data -------  length  notes ---------
-        +456789012,        {    Egโ€ฐ ?      ?}      16   =x'20' ?=x'0C'
-        +456789012,1       {    Egโ€ฐ ?!     ?}      16  !=x'21' ?=x'0C'
-        +456789012,12      {    Egโ€ฐ ?!    ?}       15  !=x'21' ?=x'0C'
-        +456789012,123     {    Egโ€ฐ ?!#   ?}       15  !=x'21' ?=x'0C'
-         +56789012,1234    {     ?gโ€ฐ ?!#@ ?}       15  !=x'21' ?=x'0C'
-          +6789012,12345   {      gโ€ฐ ?!#E ?}       15  !=x'21' ?=x'0C'
-           +789012,123456  {       ?โ€ฐ ?!#El}       15  !=x'21' l=x'6C'
-*/
-
-/* compNote:
-    picture           value  display mem.content   mem.content
-    pic s9(5) comp    00123+ ?       0000007B      0000007B
-    pic s9(5) comp    00123- ?       FFFFFF85      FFFFFF85
-*/
-
-
