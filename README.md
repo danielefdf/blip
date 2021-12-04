@@ -34,7 +34,12 @@ For example, let's define the data and the reference CoBOL copy as follows:
     a14xyz90abcdef.
     ```
 
-    - data can be in ASCII or EBCDIC encoding.
+    ON MAINFRAMES
+    - files must be in native EBCDIC encoding
+
+    ON WINDOWS
+    - plain data files can be in ASCII encoding
+    - files with signed, comp, comp-3 fields must be in EBCDIC encoding (binary transfer)
 
 - copy
 
