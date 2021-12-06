@@ -2898,8 +2898,8 @@ getComp3ValueCUR:
 getComp3ValueEbcdic:
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     dataValue = c2x(dataValue)
-    /* correzione empirica: legge sempre uno 0 di troppo se length > 1 */
-    if (fieldEbcdicLength > 1)
+    rrr = (fieldPicIntsNum + fieldPicDecsNum) // 2
+    if (rrr = 0)
     then do
         dataValue = substr(dataValue, 2)
     end
@@ -2957,19 +2957,25 @@ getCompValueEbcdic:
     end
 
     dataValue = x2d(hexValue, length(hexValue))
-    binValue = x2b(hexValue)
-    if (left(binValue, 1) = '0')  /* positive */
+    if (dataValue = 0)
     then do
-        dataValue = x2d(hexValue)
-        if (fieldPicSign = 'signed')
-        then dataSign = 'C'
-        else dataSign = 'F'
+        dataSign = ''
     end
     else do
-        flipValue = binFlip(binValue)
-        hexValue  = b2x(flipValue)
-        dataValue = x2d(hexValue) + 1
-        dataSign = 'D'
+        binValue = x2b(hexValue)
+        if (left(binValue, 1) = '0')  /* positive */
+        then do
+            dataValue = x2d(hexValue)
+            if (fieldPicSign = 'signed')
+            then dataSign = 'C'
+            else dataSign = 'F'
+        end
+        else do
+            flipValue = binFlip(binValue)
+            hexValue  = b2x(flipValue)
+            dataValue = x2d(hexValue) + 1
+            dataSign = 'D'
+        end
     end
     dataValueLDiff = fieldPicIntsNum + fieldPicDecsNum - length(dataValue)
     select  /* correzione empirica */
@@ -3058,7 +3064,7 @@ formatSign:
     dataValueChar = right(dataValue, 1)
     valueSign = '?'
     select
-    when (dataValueChar = 'F') then valueSign = ' '
+    when (dataValueChar = 'F') then valueSign = ''
     when (dataValueChar = 'C') then valueSign = '+'
     when (dataValueChar = 'D') then valueSign = '-'
     otherwise
@@ -3094,7 +3100,11 @@ formatNumber:
     end
     dataValue = replaceText(dataValue, '+0', ' +')
     dataValue = replaceText(dataValue, '-0', ' -')
-    if (left(dataValue, 2) = '00')
+    if (left(dataValue, 2) == '0.')
+    then do
+        dataValue = ' .'substr(dataValue, 3)
+    end
+    if (left(dataValue, 2) == '00')
     then do
         dataValue = ' 0'substr(dataValue, 3)
     end
