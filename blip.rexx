@@ -11,23 +11,13 @@
 */
 
 main:
-    call checkOs
-    call setConstants
-    call initSelectFeatures
-    call checkWorkDirectories
+    call housekeeping
     command = ''
     mainIterCounter = 0
     do while (SYS_TRUE)
         mainIterCounter = mainIterCounter + 1
         call checkMainIterCounter
-        call checkProfile
-        proFileIterCounter = 0
-        do while (proFileStatus = 'ko')
-            proFileIterCounter = proFileIterCounter + 1
-            call checkProFileIterCounter
-            call startPRO_FILE
-            call checkProfile
-        end
+        call checkProfileData
         select
         when (command = 'e') then call editConsole
         when (command = 'c') then call viewCopy
@@ -45,6 +35,19 @@ main:
         parse pull command
     end
     exit 1
+
+/*
+ *
+ * housekeeping
+ *
+ */
+
+housekeeping:
+    call checkOs
+    call setConstants
+    call initSelectFeatures
+    call checkWorkDirectories
+    return
 
 checkOs:
     parse source os .
@@ -122,9 +125,11 @@ checkWorkDirectoriesTSO:
     selColsDirectory = BLIP_DIRECTORY'.SELCOLS'
     return
 
-editConsole:
-    call startPRO_FILE
-    return
+/*
+ *
+ * checkMainIterCounter
+ *
+ */
 
 checkMainIterCounter:
     if (mainIterCounter > MAX_MAIN_ITER_COUNTER)
@@ -135,12 +140,20 @@ checkMainIterCounter:
     end
     return
 
-checkProFileIterCounter:
-    if (proFileIterCounter > MAX_PRO_FILE_ITER_COUNTER)
-    then do
-        say 'Max number of profile edits per session reached.'
-        say 'Please restart.'
-        call exitBlip
+/*
+ *
+ * checkProfileData
+ *
+ */
+
+checkProfileData:
+    call checkProfile
+    proFileIterCounter = 0
+    do while (proFileStatus = 'ko')
+        proFileIterCounter = proFileIterCounter + 1
+        call checkProFileIterCounter
+        call startPRO_FILE
+        call checkProfile
     end
     return
 
@@ -317,6 +330,109 @@ setFilesTSO:
     outDataFile = "'" || BLIP_DIRECTORY'.OUTDATAF'    || "'"
     return
 
+checkCurrentFiles:
+    if (DATA_FILE <> '?' & DATA_FILE <> '')
+    then do
+        call openReadDataFile
+    end
+    if (COPY_FILE <> '?' & COPY_FILE <> '')
+    then do
+        call openReadCopyFile
+    end
+    call openWriteOutDataFile
+    call openWriteOutCopyFile
+    if (COPY_FILE <> '?' & COPY_FILE <> '')
+    then do
+        call openReadSelRecsFile
+        call openReadSelColsFile
+    end
+    return
+
+setProFileStatus:
+    proFileStatus = 'ok'
+    select
+    when (DATA_FILE = '?' | DATA_FILE = '')
+    then do
+        say
+        say 'blip> checkProfile> data file: missing'
+        proFileStatus = 'ko'
+    end
+    when (datatype(MAX_LRECL) <> 'NUM')
+    then do
+        say
+        say 'blip> checkProfile> max LRECL: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (DATA_ENCODING <> 'ascii' & DATA_ENCODING <> 'ebcdic')
+    then do
+        say
+        say 'blip> checkProfile> data file encoding: wrong value'
+        say 'blip> checkProfile> DATA_ENCODING='DATA_ENCODING
+        proFileStatus = 'ko'
+    end
+    when (DATA_DSORG <> 'seq' & DATA_DSORG <> 'lseq')
+    then do
+        say
+        say 'blip> checkProfile> data file organization: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (EOL_TYPE <> 'CR' & EOL_TYPE <> 'LF' & EOL_TYPE <> 'CRLF')
+    then do
+        say
+        say 'blip> checkProfile> eol: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (COPY_FILE = '?' | COPY_FILE = '')
+    then do
+        say
+        say 'blip> checkProfile> copy file: missing'
+        proFileStatus = 'ko'
+    end
+    when (datatype(MAX_DATA_RECORDS) <> 'NUM')
+    then do
+        say
+        say 'blip> checkProfile> max records: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (datatype(MAX_ALPHA_LENGTH) <> 'NUM')
+    then do
+        say
+        say 'blip> checkProfile> max length for alpha: wrong value'
+        proFileStatus = 'ko'
+    end
+    when (datatype(RESTART_LOG_LEVEL) <> 'NUM' ,
+            | ((RESTART_LOG_LEVEL <= 0 ,
+                | RESTART_LOG_LEVEL >= 50)) ,
+                & RESTART_LOG_LEVEL <> 99)
+    then do
+        say
+        say 'blip> checkProfile> restart from level: wrong value'
+        proFileStatus = 'ko'
+    end
+    otherwise
+        nop
+    end
+    return
+
+checkProFileIterCounter:
+    if (proFileIterCounter > MAX_PRO_FILE_ITER_COUNTER)
+    then do
+        say 'Max number of profile edits per session reached.'
+        say 'Please restart.'
+        call exitBlip
+    end
+    return
+
+/*
+ *
+ * editConsole
+ *
+ */
+
+editConsole:
+    call startPRO_FILE
+    return
+
 /*
  *
  * viewCopy
@@ -329,9 +445,7 @@ viewCopy:
     return
 
 /*
- *
  * getFieldData
- *
  */
 
 getFieldData:
@@ -346,9 +460,7 @@ getFieldData:
     return
 
 /*
- *
  * setNormsList
- *
  */
 
 setNormsList:
@@ -414,9 +526,7 @@ addNormsTabRec:
     return
 
 /*
- *
  * setMonosList
- *
  */
 
 setMonosList:
@@ -464,9 +574,7 @@ addMonoRec:
     return
 
 /*
- *
  * setFieldsList
- *
  */
 
 setFieldsList:
@@ -1065,9 +1173,7 @@ getFieldOccursNum:
     return
 
 /*
- *
  * setOccursFields
- *
  */
 
 setOccursFields:
@@ -1205,9 +1311,7 @@ setRedefsDegreesFound:
     return
 
 /*
- *
  * setEbcdicFromToCols
- *
  */
 
 setEbcdicFromToCols:
@@ -1638,9 +1742,7 @@ displayField:
     return
 
 /*
- *
  * showCopy
- *
  */
 
 showCopy:
@@ -1758,90 +1860,6 @@ viewData:
     call showData
     return
 
-checkCurrentFiles:
-    if (DATA_FILE <> '?' & DATA_FILE <> '')
-    then do
-        call openReadDataFile
-    end
-    if (COPY_FILE <> '?' & COPY_FILE <> '')
-    then do
-        call openReadCopyFile
-    end
-    call openWriteOutDataFile
-    call openWriteOutCopyFile
-    if (COPY_FILE <> '?' & COPY_FILE <> '')
-    then do
-        call openReadSelRecsFile
-        call openReadSelColsFile
-    end
-    return
-
-setProFileStatus:
-    proFileStatus = 'ok'
-    select
-    when (DATA_FILE = '?' | DATA_FILE = '')
-    then do
-        say
-        say 'blip> checkProfile> data file: missing'
-        proFileStatus = 'ko'
-    end
-    when (datatype(MAX_LRECL) <> 'NUM')
-    then do
-        say
-        say 'blip> checkProfile> max LRECL: wrong value'
-        proFileStatus = 'ko'
-    end
-    when (DATA_ENCODING <> 'ascii' & DATA_ENCODING <> 'ebcdic')
-    then do
-        say
-        say 'blip> checkProfile> data file encoding: wrong value'
-        say 'blip> checkProfile> DATA_ENCODING='DATA_ENCODING
-        proFileStatus = 'ko'
-    end
-    when (DATA_DSORG <> 'seq' & DATA_DSORG <> 'lseq')
-    then do
-        say
-        say 'blip> checkProfile> data file organization: wrong value'
-        proFileStatus = 'ko'
-    end
-    when (EOL_TYPE <> 'CR' & EOL_TYPE <> 'LF' & EOL_TYPE <> 'CRLF')
-    then do
-        say
-        say 'blip> checkProfile> eol: wrong value'
-        proFileStatus = 'ko'
-    end
-    when (COPY_FILE = '?' | COPY_FILE = '')
-    then do
-        say
-        say 'blip> checkProfile> copy file: missing'
-        proFileStatus = 'ko'
-    end
-    when (datatype(MAX_DATA_RECORDS) <> 'NUM')
-    then do
-        say
-        say 'blip> checkProfile> max records: wrong value'
-        proFileStatus = 'ko'
-    end
-    when (datatype(MAX_ALPHA_LENGTH) <> 'NUM')
-    then do
-        say
-        say 'blip> checkProfile> max length for alpha: wrong value'
-        proFileStatus = 'ko'
-    end
-    when (datatype(RESTART_LOG_LEVEL) <> 'NUM' ,
-            | ((RESTART_LOG_LEVEL <= 0 ,
-                | RESTART_LOG_LEVEL >= 50)) ,
-                & RESTART_LOG_LEVEL <> 99)
-    then do
-        say
-        say 'blip> checkProfile> restart from level: wrong value'
-        proFileStatus = 'ko'
-    end
-    otherwise
-        nop
-    end
-    return
-
 setAllSelColsVisible:
     selColsConds. = '+'
     return
@@ -1876,9 +1894,7 @@ showData:
     return
 
 /*
- *
  * setSelRecs
- *
  */
 
 setSelRecs:
@@ -2106,9 +2122,7 @@ setSelRecsCondition:
     return
 
 /*
- *
  * setSelCols
- *
  */
 
 setSelCols:
@@ -2534,9 +2548,7 @@ checkSelColsAllFieldsParms:
     return
 
 /*
- *
  * showData1
- *
  */
 
 showData1:
@@ -2563,15 +2575,16 @@ setDataFileAtCursor:
 selectDataRecords:
     lastOccurredSCIndex = -1
     dataFileRecsCursor = 1
-    do while (dataFileRecsCursor <= dataFileRecsCounter ,
-            & dataFileRecsCursor <= MAX_DATA_RECORDS ,
+    do while ( (DATA_DSORG = 'seq' ,
+                | dataFileRecsCursor < dataFileRecsCounter) ,
+            & dataFileRecsCursor < MAX_DATA_RECORDS ,
             & checkDataExists() = TRUE)
-        dataFileRecsCursor = dataFileRecsCursor + 1
         if (DATA_DSORG = 'lseq')
         then do
             call readDataFileRecord
         end
         call selectOutputRecord
+        dataFileRecsCursor = dataFileRecsCursor + 1
     end
     return
 
@@ -2757,9 +2770,7 @@ setOutTableDataField:
     return
 
 /*
- *
  * get*Value*
- *
  */
 
 getAllFieldsValue:
@@ -2822,9 +2833,9 @@ getAlphanumValueCOL:
 
 getNumericValue:
     select
-    when (fieldPicCompType = 'zoned')   then call getZonedValue
-    when (fieldPicCompType = 'comp-3')  then call getComp3Value
-    when (fieldPicCompType = 'comp')    then call getCompValue
+    when (fieldPicCompType = 'zoned')  then call getZonedValue
+    when (fieldPicCompType = 'comp-3') then call getComp3Value
+    when (fieldPicCompType = 'comp')   then call getCompValue
     end
     select
     when (formatDataValues = FALSE)
@@ -2885,9 +2896,9 @@ getComp3ValueCUR:
     return
 
 getComp3ValueEbcdic:
-    /* correzione empirica: legge sempre uno 0 di troppo se length > 1 */
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     dataValue = c2x(dataValue)
+    /* correzione empirica: legge sempre uno 0 di troppo se length > 1 */
     if (fieldEbcdicLength > 1)
     then do
         dataValue = substr(dataValue, 2)
@@ -2950,7 +2961,9 @@ getCompValueEbcdic:
     if (left(binValue, 1) = '0')  /* positive */
     then do
         dataValue = x2d(hexValue)
-        dataSign = 'C'
+        if (fieldPicSign = 'signed')
+        then dataSign = 'C'
+        else dataSign = 'F'
     end
     else do
         flipValue = binFlip(binValue)
@@ -3004,6 +3017,8 @@ getCompValueCOL:  /* ??? da sistemare per MF */
     return
 
 checkValidNumValue:
+    if (length(dataValue) = 0)
+    then return FALSE
     if (isANumber(dataValue) = TRUE)
     then return TRUE
     numbersChar = substr(dataValue, 1, length(dataValue) - 1)
@@ -3020,9 +3035,7 @@ checkValidNumValue:
     return FALSE
 
 /*
- *
  * format*
- *
  */
 
 formatAlphanumValue:
@@ -3037,28 +3050,25 @@ formatAlphanumValue:
     return
 
 formatValidNumValue:
-    if (fieldPicSign = 'signed')
-    then do
-        call formatSign
-    end
+    call formatSign
     call formatNumber
     return
 
 formatSign:
     dataValueChar = right(dataValue, 1)
-    valueSign = ''
+    valueSign = '?'
     select
     when (dataValueChar = 'F') then valueSign = ' '
     when (dataValueChar = 'C') then valueSign = '+'
     when (dataValueChar = 'D') then valueSign = '-'
     otherwise
-        say 'formatSign'
-        say 'field: 'fieldLabel' pic 'fieldPicString' 'fieldPicCompType
-        say 'dataValue ['dataValue'] - dataValueChar ['dataValueChar']'
-        call exitError
+        nop
     end
-    dataValue = valueSign ,
-            || substr(dataValue, 1, length(dataValue) - 1)
+    if (valueSign <> '?')
+    then do
+        dataValue = valueSign ,
+                || substr(dataValue, 1, length(dataValue) - 1)
+    end
     return
 
 formatNumber:
@@ -3113,8 +3123,9 @@ formatNotValidNumValue:
     end
     return
 
-
-
+/*
+ * showSelRecsHelp
+ */
 
 showSelRecsHelp:
     say
@@ -3144,7 +3155,11 @@ showSelRecsHelp:
     say '       >>  : exactly greater   - example: "A ">>"A"  => TRUE'
     return
 
-/* utilities */
+/*
+ *
+ * utilities
+ *
+ */
 
 loadEbcdicToAscii:
     i = 0
@@ -3221,7 +3236,7 @@ loadEbcdicToAscii:
     i = i+1;  ebcdic.i = '40';  ascii.i = '20'  /*   */
     i = i+1;  ebcdic.i = '7C';  ascii.i = '40'  /* @ */
     i = i+1;  ebcdic.i = '60';  ascii.i = '2D'  /* - */
-    i = i+1;  ebcdic.i = '6B';  ascii.i = '2C'  /* โ€? */
+    i = i+1;  ebcdic.i = '6B';  ascii.i = '2C'  /* â€? */
     i = i+1;  ebcdic.i = '5E';  ascii.i = '3B'  /* ; */
     i = i+1;  ebcdic.i = '6D';  ascii.i = '5F'  /* _ */
     i = i+1;  ebcdic.i = '6E';  ascii.i = '3E'  /* > */
@@ -3229,7 +3244,7 @@ loadEbcdicToAscii:
     i = i+1;  ebcdic.i = '4B';  ascii.i = '2E'  /* . */
     i = i+1;  ebcdic.i = '4C';  ascii.i = '3C'  /* < */
     i = i+1;  ebcdic.i = '7E';  ascii.i = '3D'  /* = */
-    i = i+1;  ebcdic.i = 'A1';  ascii.i = '7E'  /* โ?? */
+    i = i+1;  ebcdic.i = 'A1';  ascii.i = '7E'  /* â?? */
     i = i+1;  ebcdic.i = '4D';  ascii.i = '28'  /* ( */
     i = i+1;  ebcdic.i = '4E';  ascii.i = '2B'  /* + */
     i = i+1;  ebcdic.i = '4F';  ascii.i = '21'  /* | */
@@ -3257,7 +3272,9 @@ loadEbcdicToAscii:
 ebcdic2AsciiNum:
         arg ebcdicString
     ebcdicHex = c2x(ebcdicString)
-    ebcSignChar = substr(ebcdicHex, length(ebcdicHex) - 1, 1)
+    if (length(ebcdicHex) > 1)
+    then ebcSignChar = substr(ebcdicHex, length(ebcdicHex) - 1, 1)
+    else ebcSignChar = ''
     asciiHex = replaceText(ebcdicHex, 'F', '')
     select
     when (ebcSignChar = 'C')
@@ -3295,11 +3312,67 @@ ebcdic2AsciiAlpha:
     end
     return asciiString
 
+replaceText: procedure
+    parse arg oldString, ,
+              oldText, ,
+              newText
+    newString = oldString
+    oldTextPointer = index(newString, oldText)
+    replacingsCounter = 0
+    do while (oldTextPointer > 0 & replacingsCounter <= 100)
+        RTSubstrTo = oldTextPointer - 1
+        RTSubstrFrom = oldTextPointer + length( oldText )
+        newString = substr(newString, 1, RTSubstrTo) ,
+                || newText ,
+                || substr(newString, RTSubstrFrom)
+        oldTextPointer = index(newString, oldText)
+        replacingsCounter = replacingsCounter + 1
+    end
+    if (replacingsCounter > 100)
+    then do
+        say 'replaceText'
+        say 'replacingsCounter > 100'
+        say 'replacingsCounter ['replacingsCounter']'
+        say 'newString ['newString']'
+        call exitError
+    end
+    return newString
 
+isANumber: procedure
+        parse arg data
+    if (dataType(data) = 'NUM' ,
+            & index(data, ' ') = 0 ,
+            & index(data, 'E') = 0)
+    then return TRUE
+    return FALSE
 
+binFlip: procedure
+        parse arg binString
+    binString = replaceText(binString, '0', '?')
+    binString = replaceText(binString, '1', '0')
+    binString = replaceText(binString, '?', '1')
+    return binString
 
+checkRc: procedure
+        parse arg procLabel,
+                  returnCode,
+                  okCode
+    if (returnCode <> okCode)
+    then do
+        say
+        say
+        say
+        say procLabel':'
+        say 'returnCode ['returnCode']'
+        call exitError
+    end
+    return
 
-/* proFile */
+/*
+ *
+ * proFile
+ *
+ */
 
 openReadProFile:
     select
@@ -3494,11 +3567,11 @@ closeProFileTSO:
             rc 0
     return
 
-
-
-
-
-/* dataFile */
+/*
+ *
+ * dataFile
+ *
+ */
 
 openReadDataFile:
     select
@@ -3606,11 +3679,11 @@ closeDataFileTSO:
             rc 0
     return
 
-
-
-
-
-/* copyFile */
+/*
+ *
+ * copyFile
+ *
+ */
 
 openReadCopyFile:
     select
@@ -3718,11 +3791,11 @@ closeCopyFileTSO:
             rc 0
     return
 
-
-
-
-
-/* selRecsFile */
+/*
+ *
+ * selRecsFile
+ *
+ */
 
 openReadSelRecsFile:
     select
@@ -3918,11 +3991,11 @@ closeSelRecsFileTSO:
             rc 0
     return
 
-
-
-
-
-/* selColsFile */
+/*
+ *
+ * selColsFile
+ *
+ */
 
 openReadSelColsFile:
     select
@@ -4118,11 +4191,11 @@ closeSelColsFileTSO:
             rc 0
     return
 
-
-
-
-
-/* outCopyFile */
+/*
+ *
+ * outCopyFile
+ *
+ */
 
 openWriteOutCopyFile:
     select
@@ -4244,11 +4317,11 @@ startOutCopyFileTSO:
             rc 0
     return
 
-
-
-
-
-/* outDataFile */
+/*
+ *
+ * outDataFile
+ *
+ */
 
 openWriteOutDataFile:
     select
@@ -4368,68 +4441,6 @@ startOutDataFileTSO:
     address
     call checkRc 'startOutDataFileTSO' ,
             rc 0
-    return
-
-/*
- *
- * utils
- *
- */
-
-replaceText: procedure
-    parse arg oldString, ,
-              oldText, ,
-              newText
-    newString = oldString
-    oldTextPointer = index(newString, oldText)
-    replacingsCounter = 0
-    do while (oldTextPointer > 0 & replacingsCounter <= 100)
-        RTSubstrTo = oldTextPointer - 1
-        RTSubstrFrom = oldTextPointer + length( oldText )
-        newString = substr(newString, 1, RTSubstrTo) ,
-                || newText ,
-                || substr(newString, RTSubstrFrom)
-        oldTextPointer = index(newString, oldText)
-        replacingsCounter = replacingsCounter + 1
-    end
-    if (replacingsCounter > 100)
-    then do
-        say 'replaceText'
-        say 'replacingsCounter > 100'
-        say 'replacingsCounter ['replacingsCounter']'
-        say 'newString ['newString']'
-        call exitError
-    end
-    return newString
-
-isANumber: procedure
-        parse arg data
-    if (dataType(data) = 'NUM' ,
-            & index(data, ' ') = 0 ,
-            & index(data, 'E') = 0)
-    then return TRUE
-    return FALSE
-
-binFlip: procedure
-        parse arg binString
-    binString = replaceText(binString, '0', '?')
-    binString = replaceText(binString, '1', '0')
-    binString = replaceText(binString, '?', '1')
-    return binString
-
-checkRc: procedure
-        parse arg procLabel,
-                  returnCode,
-                  okCode
-    if (returnCode <> okCode)
-    then do
-        say
-        say
-        say
-        say procLabel':'
-        say 'returnCode ['returnCode']'
-        call exitError
-    end
     return
 
 /*
