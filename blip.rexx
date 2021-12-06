@@ -269,6 +269,11 @@ getProfileOptions:
             end
         end
     end
+    if (os = 'TSO')
+    then do
+        DATA_DSORG = 'lseq'
+        say 'DATA_DSORG automatically set to LSEQ in TSO environment'
+    end
     return
 
 getCOPY_NAME:
@@ -2886,6 +2891,12 @@ getComp3Value:
     if (DATA_DSORG = 'seq')
     then call getComp3ValueCUR
     else call getComp3ValueCOL
+    dataValue = c2x(dataValue)
+    rrr = (fieldPicIntsNum + fieldPicDecsNum) // 2
+    if (rrr = 0)
+    then do
+        dataValue = substr(dataValue, 2)
+    end
     return
 
 getComp3ValueCUR:
@@ -2897,12 +2908,6 @@ getComp3ValueCUR:
 
 getComp3ValueEbcdic:
     dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
-    dataValue = c2x(dataValue)
-    rrr = (fieldPicIntsNum + fieldPicDecsNum) // 2
-    if (rrr = 0)
-    then do
-        dataValue = substr(dataValue, 2)
-    end
     return
 
 getComp3ValueAscii:
@@ -2916,24 +2921,12 @@ getComp3ValueAscii:
 getComp3ValueCOL:
     dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
             fieldEbcdicLength)
-    dataValue = c2x(dataValue)
     return
 
 getCompValue:
     if (DATA_DSORG = 'seq')
     then call getCompValueCUR
     else call getCompValueCOL
-    return
-
-getCompValueCUR:
-    select
-    when (DATA_ENCODING = 'ebcdic') then call getCompValueEbcdic
-    when (DATA_ENCODING = 'ascii')  then call getCompValueAscii
-    end
-    return
-
-getCompValueEbcdic:
-    dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
     hexValue = c2x(dataValue)
 
 /* correzione empirica:
@@ -2995,6 +2988,17 @@ getCompValueEbcdic:
     dataValue = dataValue || dataSign
     return
 
+getCompValueCUR:
+    select
+    when (DATA_ENCODING = 'ebcdic') then call getCompValueEbcdic
+    when (DATA_ENCODING = 'ascii')  then call getCompValueAscii
+    end
+    return
+
+getCompValueEbcdic:
+    dataValue = charin(DATA_FILE, dataCursor, fieldEbcdicLength)
+    return
+
 getCompValueAscii:
     say 'getCompValueAscii'
     say 'fieldLabel ['fieldLabel']'
@@ -3003,23 +3007,9 @@ getCompValueAscii:
     call exitError
     return
 
-getCompValueCOL:  /* ??? da sistemare per MF */
+getCompValueCOL:
     dataValue = substr(dataFileRecord, fieldEbcdicFromCol, ,
             fieldEbcdicLength)
-    hexValue = c2x(dataValue)
-    binValue = x2b(hexValue)
-    if (left(binValue, 1) = '0')  /* positive */
-    then do
-        dataValue = x2d(hexValue)
-        dataValue = dataValue'C'  /* set normal sign to format */
-    end
-    else do
-        posiValue = bitxor(dataValue, 'FFFFFFFFFFFFFFFF'x)
-        hexValue  = b2x(posiValue)
-        dataValue = x2d(hexValue)
-        dataValue = dataValue - 1
-        dataValue = dataValue'D'  /* set normal sign to format */
-    end
     return
 
 checkValidNumValue:
@@ -3551,6 +3541,8 @@ startPRO_FILE_TSO:
     address ispexec
         'edit dataset ('PRO_FILE_Q')'
     address
+    if (rc = 4)
+    then rc = 0
     call checkRc 'startPRO_FILE_TSO' ,
             rc 0
     return
@@ -3572,7 +3564,12 @@ closeProFileTSO:
         'execio 0 diskr proDD (finis) '
         'free ddname(proDD)'
     address
+    address tso
+        'free ddname(proDD)'
+    address
     msgStatus = msg(on)
+    if (rc = 12)
+    then rc = 0
     call checkRc 'closeProFileTSO' ,
             rc 0
     return
@@ -3662,6 +3659,8 @@ readDataFileRecordTSO:
     address tso
         'execio 1 diskr dataDD (stem dataFileStem.'
     address
+    if (rc = 2)
+    then rc = 0
     call checkRc 'readDataFileRecordTSO' ,
             rc 0
     dataFileRecord = dataFileStem.1
@@ -3685,6 +3684,8 @@ closeDataFileTSO:
         'free ddname(dataDD)'
     address
     msgStatus = msg(on)
+    if (rc = 12)
+    then rc = 0
     call checkRc 'closeDataFileTSO' ,
             rc 0
     return
@@ -3797,6 +3798,8 @@ closeCopyFileTSO:
         'free ddname(copyDD)'
     address
     msgStatus = msg(on)
+    if (rc = 12)
+    then rc = 0
     call checkRc 'closeCopyFileTSO' ,
             rc 0
     return
@@ -3975,6 +3978,8 @@ startSelRecsFileTSO:
     address ispexec
         'edit dataset ('selRecsFile')'
     address
+    if (rc = 4)
+    then rc = 0
     call checkRc 'startSelRecsFileTSO' ,
             rc 0
     return
@@ -3997,6 +4002,8 @@ closeSelRecsFileTSO:
         'free ddname(selRcsDD)'
     address
     msgStatus = msg(on)
+    if (rc = 12)
+    then rc = 0
     call checkRc 'closeSelRecsFileTSO' ,
             rc 0
     return
@@ -4175,6 +4182,8 @@ startSelColsFileTSO:
     address ispexec
         'edit dataset ('selColsFile')'
     address
+    if (rc = 4)
+    then rc = 0
     call checkRc 'startSelColsFileTSO' ,
             rc 0
     return
@@ -4197,6 +4206,8 @@ closeSelColsFileTSO:
         'free ddname(selClsDD)'
     address
     msgStatus = msg(on)
+    if (rc = 12)
+    then rc = 0
     call checkRc 'closeSelColsFileTSO' ,
             rc 0
     return
@@ -4299,6 +4310,8 @@ closeOutCopyFileTSO:
         'free ddname(outCpyDD)'
     address
     msgStatus = msg(on)
+    if (rc = 12)
+    then rc = 0
     call checkRc 'closeOutCopyFileTSO' ,
             rc 0
     return
@@ -4323,6 +4336,8 @@ startOutCopyFileTSO:
     address ispexec
         'edit dataset ('outCopyFile')'
     address
+    if (rc = 4)
+    then rc = 0
     call checkRc 'startOutCopyFileTSO' ,
             rc 0
     return
@@ -4425,6 +4440,8 @@ closeOutDataFileTSO:
         'free ddname(outDtaDD)'
     address
     msgStatus = msg(on)
+    if (rc = 12)
+    then rc = 0
     call checkRc 'closeOutDataFileTSO' ,
             rc 0
     return
@@ -4449,6 +4466,8 @@ startOutDataFileTSO:
     address ispexec
         'edit dataset ('outDataFile')'
     address
+    if (rc = 4)
+    then rc = 0
     call checkRc 'startOutDataFileTSO' ,
             rc 0
     return
