@@ -2928,48 +2928,13 @@ getCompValue:
     then call getCompValueCUR
     else call getCompValueCOL
     hexValue = c2x(dataValue)
-
-/* correzione empirica:
-                          1110001001000000        E240    -7616
-       -> 00000000000000011110001001000000    0001E240    123456
-                          0001110111000000        1DC0    7616
-       -> 11111111111111100001110111000000    FFFE1DC0    -123456
-*/
-
-    if (fieldPicDecsNum > 0 ,
-            & fieldEbcdicLength <= 2 ,
-            & hexValue <> 0)
-    then do
-        if (left(binValue, 1) = '0')
-        then do
-            hexValue = '0001'hexValue
-        end
-        else do
-            hexValue = 'FFFE'hexValue
-        end
-    end
-
     dataValue = x2d(hexValue, length(hexValue))
-    if (dataValue = 0)
-    then do
-        dataSign = ''
+	select
+	when (dataValue = 0) then dataSign = ''
+	when (dataValue > 0) then dataSign = 'C'
+	when (dataValue < 0) then dataSign = 'D'
     end
-    else do
-        binValue = x2b(hexValue)
-        if (left(binValue, 1) = '0')  /* positive */
-        then do
-            dataValue = x2d(hexValue)
-            if (fieldPicSign = 'signed')
-            then dataSign = 'C'
-            else dataSign = 'F'
-        end
-        else do
-            flipValue = binFlip(binValue)
-            hexValue  = b2x(flipValue)
-            dataValue = x2d(hexValue) + 1
-            dataSign = 'D'
-        end
-    end
+    dataValue = abs(dataValue)
     dataValueLDiff = fieldPicIntsNum + fieldPicDecsNum - length(dataValue)
     select  /* correzione empirica */
     when (dataValueLDiff = 0)
@@ -3090,14 +3055,10 @@ formatNumber:
     end
     dataValue = replaceText(dataValue, '+0', ' +')
     dataValue = replaceText(dataValue, '-0', ' -')
-    if (left(dataValue, 2) == '0.')
-    then do
-        dataValue = ' .'substr(dataValue, 3)
-    end
-    if (left(dataValue, 2) == '00')
-    then do
-        dataValue = ' 0'substr(dataValue, 3)
-    end
+	if (left(dataValue, 1) == '0')
+	then do
+		dataValue = ' 'substr(dataValue, 2)
+	end
     dataValue = replaceText(dataValue, ' 0', ' ')
     if (dataValue = '' ,
             | dataValue = '+' ,
