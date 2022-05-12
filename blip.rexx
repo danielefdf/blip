@@ -182,6 +182,7 @@ initProfile:
     MAX_DATA_RECORDS  = 99
     MAX_ALPHA_LENGTH  = 99
     RESTART_LOG_LEVEL = 99
+    OUTPUT_TYPE       = 'hor'
     call openWriteProFile
     proRecord = '*'
     call writeProRecord
@@ -231,6 +232,10 @@ initProfile:
     call writeProRecord
     proRecord = '          'RESTART_LOG_LEVEL
     call writeProRecord
+    proRecord = '*     output type             -- hor/ver'
+    call writeProRecord
+    proRecord = '          'OUTPUT_TYPE
+    call writeProRecord
     proRecord = '*'
     call writeProRecord
     proRecord = '*'
@@ -266,13 +271,16 @@ getProfileOptions:
             then MAX_ALPHA_LENGTH   = strip(proRecord)
             when (proFileParmCursor = 9)
             then RESTART_LOG_LEVEL  = strip(proRecord)
+            when (proFileParmCursor = 10)
+            then OUTPUT_TYPE        = strip(proRecord)
             end
         end
     end
     if (os = 'TSO')
     then do
-        DATA_DSORG = 'lseq'
-        say 'DATA_DSORG automatically set to LSEQ in TSO environment'
+        DATA_DSORG     = 'lseq'    /* solo questo conta */
+        DATA_ENCODING  = 'ebcdic'
+        EOL_TYPE       = 'CRLF'
     end
     return
 
@@ -414,6 +422,12 @@ setProFileStatus:
         say 'blip> checkProfile> restart from level: wrong value'
         proFileStatus = 'ko'
     end
+    when (OUTPUT_TYPE <> 'hor' & OUTPUT_TYPE <> 'ver')
+    then do
+        say
+        say 'blip> checkProfile> output type: wrong value'
+        proFileStatus = 'ko'
+    end
     otherwise
         nop
     end
@@ -455,6 +469,7 @@ viewCopy:
 
 getFieldData:
     call setNormsList
+    call skipExecs
     call setMonosList
     call setFieldsList
     call setOccursFields
@@ -528,6 +543,33 @@ clearLiterals:
 addNormsTabRec:
     normsCounter = normsCounter + 1
     norms.normsCounter = copyRecBody' '
+    return
+
+/*
+ * skipExecs
+ */
+
+skipExecs:
+    insideExecSw = 'N'
+    normsIndex = 1
+    do normsIndex = 1 to normsCounter
+        norm = ' 'norms.normsIndex
+        norm = translate(norm, 'abcdefghijklmnopqrstuvwxyz', ,
+                               'ABCDEFGHIJKLMNOPQRSTUVWXYZ')
+        if (index(norm, ' exec ') > 0)
+        then do
+            insideExecSw = 'Y'
+        end
+        if (insideExecSw = 'Y')
+        then do
+            if (index(norm, ' end-exec ') > 0 ,
+                 | index(norm, ' end-exec.') > 0)
+            then do
+                insideExecSw = 'N'
+            end
+            norms.normsIndex = ''
+        end
+    end
     return
 
 /*
@@ -879,6 +921,7 @@ getFieldPicElems:
                 end
             end
             otherwise
+                nop
             end
         end
         when (fieldPicCharNew = '(')
@@ -2054,7 +2097,8 @@ checkAllSelRecsParms:
     return
 
 readSelectParms:
-    selectParmsString = strip(substr(selectRecord, FIELD_LABEL_PAD + 1))
+    subs = substr(selectRecord, FIELD_LABEL_PAD + 1)
+    selectParmsString = strip(subs)
     parse var selectParmsString '['selRecsOperator']' ,
             . '['selRecsValue']'
     return
@@ -2581,8 +2625,8 @@ selectDataRecords:
     lastOccurredSCIndex = -1
     dataFileRecsCursor = 1
     do while ( (DATA_DSORG = 'seq' ,
-                | dataFileRecsCursor < dataFileRecsCounter) ,
-            & dataFileRecsCursor < MAX_DATA_RECORDS ,
+                | dataFileRecsCursor <= dataFileRecsCounter) ,
+            & dataFileRecsCursor <= MAX_DATA_RECORDS ,
             & checkDataExists() = TRUE)
         if (DATA_DSORG = 'lseq')
         then do
@@ -2611,7 +2655,8 @@ selectOutputRecord:
         formatDataValues = TRUE
         if (occurredSCIndex <> lastOccurredSCIndex)
         then do
-            call setOutTableHeader
+            if (OUTPUT_TYPE = 'hor')
+            then call setOutTableHeader
             lastOccurredSCIndex = occurredSCIndex
         end
         call setOutputRecord
@@ -2746,6 +2791,13 @@ showOutTableHeaderField:
     return
 
 setOutputRecord:
+    select
+    when (OUTPUT_TYPE = 'hor') then call setOutputRecordHor
+    when (OUTPUT_TYPE = 'ver') then call setOutputRecordVer
+    end
+    return
+
+setOutputRecordHor:
     outputRecord = OUT_REC_INITIAL_SPACE
     do fieldsIndex = 1 to fieldsCounter
         call retrieveField fieldsIndex
@@ -2753,12 +2805,12 @@ setOutputRecord:
         if (fieldPicType <> 'group' ,
                 & selColsConds.occurredSCIndex.fieldLabel = '+')
         then do
-            call setOutTableDataField
+            call setOutTableDataFieldHor
         end
     end
     return
 
-setOutTableDataField:
+setOutTableDataFieldHor:
     valueString = dataValue
     select
     when (fieldPicType = 'alphanum')
@@ -2770,8 +2822,82 @@ setOutTableDataField:
     then do
         column = right(valueString, fieldColumnLength)
     end
+    otherwise
+        nop
     end
     outputRecord = outputRecord || column' ; '
+    return
+
+setOutputRecordVer:
+    call setOutputRecordVerHeader
+    call writeOutputRecord
+    call setOutputRecordVerSeparator
+    call writeOutputRecord
+    do fieldsIndex = 1 to fieldsCounter
+        call retrieveField fieldsIndex
+        call setOutputRecordVerField
+        call writeOutputRecord
+    end
+    return
+
+setOutputRecordVerHeader:
+    outputRecord = '' ,
+            || ';'right( 'level',     5) ,
+            || ';'left(  'label',     36) ,
+            || ';'left(  'picture',   20) ,
+            || ';'right( 'occurs',    7) ,
+            || ';'left(  'redefines', 36) ,
+            || ';'right( 'int',       5) ,
+            || ';'right( 'dec',       5) ,
+            || ';'right( 'from',      5) ,
+            || ';'right( 'to',        5) ,
+            || ';'right( 'len',       5) ,
+            || ';'left(  'structure', 100) ,
+            || ';'left(  'value',     100) ,
+            || ';'
+    return
+
+setOutputRecordVerSeparator:
+    outputRecord = '' ,
+            || ';'right( ' ', 5) ,
+            || ';'left(  ' ', 36) ,
+            || ';'left(  ' ', 20) ,
+            || ';'right( ' ', 7) ,
+            || ';'left(  ' ', 36) ,
+            || ';'right( ' ', 5) ,
+            || ';'right( ' ', 5) ,
+            || ';'right( ' ', 5) ,
+            || ';'right( ' ', 5) ,
+            || ';'right( ' ', 5) ,
+            || ';'left(  ' ', 100) ,
+            || ';'left(  ' ', 100) ,
+            || ';'
+    return
+
+setOutputRecordVerField:
+    call setPicString
+    call setOccursString
+    call setStructureString
+    call getValue
+    call setOutTableDataFieldVer
+    outputRecord = '' ,
+            || ';'format( fieldLevel,         5) ,
+            || ';'left(   fieldLabel,         36) ,
+            || ';'left(   picString,          20) ,
+            || ';'right(  occursString,       7) ,
+            || ';'left(   fieldRedefdLabel,   36) ,
+            || ';'format( fieldPicIntsNum,    5) ,
+            || ';'format( fieldPicDecsNum,    5) ,
+            || ';'format( fieldEbcdicFromCol, 5) ,
+            || ';'format( fieldEbcdicToCol,   5) ,
+            || ';'format( fieldEbcdicLength,  5) ,
+            || ';'left(   structureString,    100) ,
+            || ';'left(   valueString,        100) ,
+            || ';'
+    return
+
+setOutTableDataFieldVer:
+    valueString = '"'dataValue'"'
     return
 
 /*
@@ -2802,7 +2928,8 @@ getAllFieldsValueCOL:
 
 getValue:
     dataCursor = fieldEbcdicFromCol + (dataFileRecsCursor - 1) * 600
-    numeric digits 19  /* per evitare notazione esponenziale in output */
+    /* per evitare notazione esponenziale in output */
+    numeric digits 19
     dataValue = ''
     select
     when (fieldPicType = 'group')    then nop
@@ -2929,13 +3056,14 @@ getCompValue:
     else call getCompValueCOL
     hexValue = c2x(dataValue)
     dataValue = x2d(hexValue, length(hexValue))
-	select
-	when (dataValue = 0) then dataSign = ''
-	when (dataValue > 0) then dataSign = 'C'
-	when (dataValue < 0) then dataSign = 'D'
+    select
+    when (dataValue = 0) then dataSign = ''
+    when (dataValue > 0) then dataSign = 'C'
+    when (dataValue < 0) then dataSign = 'D'
     end
     dataValue = abs(dataValue)
-    dataValueLDiff = fieldPicIntsNum + fieldPicDecsNum - length(dataValue)
+    dataValueLDiff = fieldPicIntsNum + fieldPicDecsNum - ,
+            length(dataValue)
     select  /* correzione empirica */
     when (dataValueLDiff = 0)
     then do
@@ -2987,8 +3115,8 @@ checkValidNumValue:
     if (isANumber(numbersChar) = TRUE ,
             & (signChar = 'C' | signChar = 'D' | signChar = 'F') )
     then do
-        /* i dati COMP possono contenere piu' cifre di quelle che nominalmente
-           spetterebbero al campo secondo la PIC */
+        /* i dati COMP possono contenere piu' cifre di quelle che       lmente
+           formalmente spetterebbero al campo secondo la PIC */
         if (length(numbersChar) > fieldPicIntsNum + fieldPicDecsNum)
         then return FALSE
         else return TRUE
@@ -3055,10 +3183,10 @@ formatNumber:
     end
     dataValue = replaceText(dataValue, '+0', ' +')
     dataValue = replaceText(dataValue, '-0', ' -')
-	if (left(dataValue, 1) == '0')
-	then do
-		dataValue = ' 'substr(dataValue, 2)
-	end
+    if (left(dataValue, 1) == '0')
+    then do
+        dataValue = ' 'substr(dataValue, 2)
+    end
     dataValue = replaceText(dataValue, ' 0', ' ')
     if (dataValue = '' ,
             | dataValue = '+' ,
@@ -3520,15 +3648,12 @@ closeProFileWIN:
     return
 
 closeProFileTSO:
-    msgStatus = msg(off)
+    call setMsgOff
     address tso
         'execio 0 diskr proDD (finis) '
         'free ddname(proDD)'
     address
-    address tso
-        'free ddname(proDD)'
-    address
-    msgStatus = msg(on)
+    call setMsgOn
     if (rc = 12)
     then rc = 0
     call checkRc 'closeProFileTSO' ,
@@ -3595,8 +3720,8 @@ setDataFileRecsCounterWIN:
 setDataFileRecsCounterTSO:
     dataFileStem. = ''
     address tso
-        'execio * diskr proDD (stem dataFileStem.'
-        'execio 0 diskr proDD (finis) '
+        'execio * diskr dataDD (stem dataFileStem.'
+        'execio 0 diskr dataDD (finis) '
     address
     call checkRc 'setDataFileRecsCounterTSO' ,
             rc 0
@@ -3639,12 +3764,12 @@ closeDataFileWIN:
     return
 
 closeDataFileTSO:
-    msgStatus = msg(off)
+    call setMsgOff
     address tso
         'execio 0 diskr dataDD (finis) '
         'free ddname(dataDD)'
     address
-    msgStatus = msg(on)
+    call setMsgOn
     if (rc = 12)
     then rc = 0
     call checkRc 'closeDataFileTSO' ,
@@ -3753,12 +3878,12 @@ closeCopyFileWIN:
     return
 
 closeCopyFileTSO:
-    msgStatus = msg(off)
+    call setMsgOff
     address tso
         'execio 0 diskr copyDD (finis) '
         'free ddname(copyDD)'
     address
-    msgStatus = msg(on)
+    call setMsgOn
     if (rc = 12)
     then rc = 0
     call checkRc 'closeCopyFileTSO' ,
@@ -3957,12 +4082,12 @@ closeSelRecsFileWIN:
     return
 
 closeSelRecsFileTSO:
-    msgStatus = msg(off)
+    call setMsgOff
     address tso
         'execio 0 diskr selRcsDD (finis) '
         'free ddname(selRcsDD)'
     address
-    msgStatus = msg(on)
+    call setMsgOn
     if (rc = 12)
     then rc = 0
     call checkRc 'closeSelRecsFileTSO' ,
@@ -4161,12 +4286,12 @@ closeSelColsFileWIN:
     return
 
 closeSelColsFileTSO:
-    msgStatus = msg(off)
+    call setMsgOff
     address tso
         'execio 0 diskr selClsDD (finis) '
         'free ddname(selClsDD)'
     address
-    msgStatus = msg(on)
+    call setMsgOn
     if (rc = 12)
     then rc = 0
     call checkRc 'closeSelColsFileTSO' ,
@@ -4220,10 +4345,12 @@ allocateOutCopyFile:
 
 allocateNewOutCopyFile:
     call closeOutCopyFile
+    myBlock = 2 * MAX_LRECL
     address tso
         'allocate ddname(outCpyDD) dataset('outCopyFile') new' ,
                 'space(50 1) tracks release' ,
-                'lrecl('MAX_LRECL') block(1600) recfm(f b) dsorg(ps)'
+                'lrecl('MAX_LRECL') block('myBlock')' ,
+                'recfm(f b) dsorg(ps)'
     address
     call checkRc 'allocateNewOutCopyFile' ,
             rc 0
@@ -4265,12 +4392,12 @@ closeOutCopyFileWIN:
     return
 
 closeOutCopyFileTSO:
-    msgStatus = msg(off)
+    call setMsgOff
     address tso
         'execio 0 diskw outCpyDD (finis'
         'free ddname(outCpyDD)'
     address
-    msgStatus = msg(on)
+    call setMsgOn
     if (rc = 12)
     then rc = 0
     call checkRc 'closeOutCopyFileTSO' ,
@@ -4350,10 +4477,12 @@ allocateOutDataFile:
 
 allocateNewOutDataFile:
     call closeOutDataFile
+    myBlock = 2 * MAX_LRECL
     address tso
         'allocate ddname(outDtaDD) dataset('outDataFile') new' ,
                 'space(50 1) tracks release' ,
-                'lrecl(400) block(1600) recfm(f b) dsorg(ps)'
+                'lrecl('MAX_LRECL') block('myBlock')' ,
+                'recfm(f b) dsorg(ps)'
     address
     call checkRc 'allocateNewOutDataFile' ,
             rc 0
@@ -4395,12 +4524,12 @@ closeOutDataFileWIN:
     return
 
 closeOutDataFileTSO:
-    msgStatus = msg(off)
+    call setMsgOff
     address tso
         'execio 0 diskw outDtaDD (finis'
         'free ddname(outDtaDD)'
     address
-    msgStatus = msg(on)
+    call setMsgOn
     if (rc = 12)
     then rc = 0
     call checkRc 'closeOutDataFileTSO' ,
@@ -4431,6 +4560,20 @@ startOutDataFileTSO:
     then rc = 0
     call checkRc 'startOutDataFileTSO' ,
             rc 0
+    return
+
+/*
+ *
+ * msg
+ *
+ */
+
+setMsgOff:
+    msgStatus = msg(off)
+    return
+
+setMsgOn:
+    msgStatus = msg(on)
     return
 
 /*
