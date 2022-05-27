@@ -1957,6 +1957,7 @@ setSelRecs:
     command = ''
     do while (allSelRecsParmsOk = FALSE)
         select
+        when (command = 'e') then call startSelRecsFile
         when (command = 'r') then call refreshAndStartSelRecsFile
         when (command = 'h') then call showSelRecsHelp
         when (command = 'v') then call checkSelRecsAndShowData
@@ -1969,6 +1970,7 @@ setSelRecs:
         then do
             say
             say 'blip> viewData> selRecs> enter command:'
+            say '    e: edit file'
             say '    r: refresh file'
             say '    h: help about parameters'
             say '    v: view data'
@@ -2186,6 +2188,7 @@ setSelCols:
     command = ''
     do while (allSelColsParmsOk = FALSE)
         select
+        when (command = 'e') then call startSelColsFile
         when (command = 'r') then call refreshAndStartSelColsFile
         when (command = 'h') then call showSelColsHelp
         when (command = 'v') then call checkSelColsAndShowData
@@ -2198,6 +2201,7 @@ setSelCols:
         then do
             say
             say 'blip> viewData> selCols> enter command:'
+            say '    e: edit file'
             say '    r: refresh file'
             say '    h: help about parameters'
             say '    v: view data'
@@ -2363,6 +2367,7 @@ checkSelColsString:
     selColsCondsCounter   = 0
     selColsColumnsCounter = 0
     selColsStringCut = selColsString
+    nextWord = '?'
     do while (length(selColsStringCut) > 0 ,
             & allSelColsParmsOk = TRUE ,
             & nextWord <> '')
